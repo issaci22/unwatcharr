@@ -1,10 +1,5 @@
 # CLAUDE.md — Unwatcharr 2.1 engineering guide
 
-Guidance for Claude Code working in this repository. The original product brief
-lives at [docs/PROJECT-BRIEF.md](docs/PROJECT-BRIEF.md) — it is the requirements
-document and must not be deleted. This file is the *engineering* guide and is
-updated as the build progresses.
-
 ## What this is
 
 A sidecar container that marks old watched Plex media unwatched again, on a
