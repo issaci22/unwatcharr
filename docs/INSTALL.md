@@ -39,14 +39,7 @@ services:
       # both unset and use the setup wizard's plex.tv link code instead.
       PLEX_URL: ${PLEX_URL:-}
       PLEX_TOKEN: ${PLEX_TOKEN:-}
-    mem_limit: 256m
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8577/healthz',timeout=4)"]
-      interval: 60s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
 ```
 
 Then, in the same directory:
