@@ -1,0 +1,793 @@
+{% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% import "_empty.html" as blank %}
+{% block title %}Users — {{ app_name }}{% endblock %}
+
+{#- ---------------------------------------------------------------------------
+    Users is an operational matrix, not an address book. Every card answers the
+    only four questions that decide whether a run will do anything for someone:
+
+      who they are · can we act as them · are they in runs · what reaches them
+      (rules) and what has already been done to them (activity)
+
+    Plex hands out four kinds of account and they are NOT interchangeable. The
+    owner IS the server token; Home and managed profiles can have a token minted
+    for them on request; a shared friend cannot, because Plex offers no admin
+    route to another account's token. That single distinction is why the kind
+    badge is prominent, and why the detail panel always carries a token field
+    rather than only a "Link" button.
+
+    Everything in the detail panel is server-rendered — one hidden section per
+    user inside one dialog. The script only unhides the right section and sets
+    the heading with textContent, so no user text is ever concatenated into
+    markup. Names and ids travel in data-* attributes (normally autoescaped),
+    never through `| tojson` inside an attribute.
+--------------------------------------------------------------------------- #}
+
+{% set KIND_LABEL = {
+  'owner':   'Owner',
+  'home':    'Home user',
+  'managed': 'Managed user',
+  'shared':  'Shared user'
+} %}
+{% set KIND_EXPLAIN = {
+  'owner':   'The server owner. Their token is the server token, so they are always linked and cannot be removed.',
+  'home':    'A member of your Plex Home with their own Plex sign-in. Plex will mint a token for them on request.',
+  'managed': 'A managed profile inside your Plex Home, with no Plex account of its own. Plex will mint a token for it on request.',
+  'shared':  'A friend with their own Plex account who you shared a library with. Plex will not mint a token for them — they have to paste one in.'
+} %}
+{% set KIND_ICON = {
+  'owner': 'server', 'home': 'users', 'managed': 'shield', 'shared': 'unlock'
+} %}
+
+{#- The viewmodel's `avatar_url` interpolates the path raw, and a Plex avatar is
+    an absolute plex.tv URL full of ? and &, so the query is built here
+    url-encoded instead. The proxy holds the token; no browser ever sees one. -#}
+{% macro avatar(user, size) -%}
+  {%- if user.thumb -%}
+    <img class="avatar {{ 'avatar--lg' if size == 'lg' }} uavatar"
+         src="/api/thumb?path={{ user.thumb | urlencode }}"
+         alt="" loading="lazy" width="{{ 44 if size == 'lg' else 30 }}"
+         height="{{ 44 if size == 'lg' else 30 }}">
+  {%- else -%}
+    <span class="avatar {{ 'avatar--lg' if size == 'lg' }} uavatar uavatar--none"
+          aria-hidden="true">{{ user.title[:1] | upper }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro kindbadge(user) -%}
+  <span class="badge-new kindbadge kindbadge--{{ user.kind }}">
+    {{ icons.icon(KIND_ICON.get(user.kind, 'users'), 12) }}
+    {{ KIND_LABEL.get(user.kind, user.kind) }}
+  </span>
+  {%- if user.protected %}
+  <span class="badge-new" title="This profile is PIN-protected">
+    {{ icons.icon('shield', 12) }} PIN</span>
+  {%- endif %}
+{%- endmacro %}
+
+{#- Token state is never colour alone: dot + word, always. -#}
+{% macro tokenstate(user) -%}
+  {%- if user.token_status == 'invalid' -%}
+    <span class="dot dot--danger"></span><span class="text-danger strong">Token rejected</span>
+  {%- elif user.linked and user.token_status == 'ok' -%}
+    <span class="dot dot--ok"></span><span class="text-ok strong">Token valid</span>
+  {%- elif user.linked -%}
+    <span class="dot dot--warn"></span><span class="text-warn strong">Token unchecked</span>
+  {%- else -%}
+    <span class="dot dot--warn"></span><span class="text-warn strong">No token</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+<div class="pagehead">
+  <div class="pagehead__text">
+    <h1 class="pagehead__title">Users</h1>
+    <p class="pagehead__sub">
+      A run happens once per user, using that person's own Plex token. Anyone
+      without a working token, or switched out of runs, is skipped entirely.
+    </p>
+  </div>
+  <div class="pagehead__actions">
+    <button type="button" class="btn btn--primary"
+            onclick="act('/api/users/refresh', {method:'POST', source:this}, 'Users refreshed from Plex.')">
+      {{ icons.icon('users', 15) }} Refresh from Plex
+    </button>
+  </div>
+</div>
+
+{% if users %}
+<div class="statgrid usersum">
+  <div class="stat-card">
+    <span class="stat-card__label">Accounts</span>
+    <span class="stat-card__value">{{ summary.total }}</span>
+    <span class="stat-card__foot">{{ users | selectattr('enabled') | list | length }} switched on for runs</span>
+  </div>
+  <div class="stat-card {{ 'stat-card--ok' if summary.total and summary.linked == summary.total }}">
+    <span class="stat-card__label">Linked</span>
+    <span class="stat-card__value">{{ summary.linked }}</span>
+    <span class="stat-card__foot">holding a token Plex accepted</span>
+  </div>
+  <div class="stat-card {{ 'stat-card--warn' if summary.unlinked }}">
+    <span class="stat-card__label">Needs a token</span>
+    <span class="stat-card__value">{{ summary.unlinked }}</span>
+    <span class="stat-card__foot">
+      {%- if summary.unlinked %}skipped on every run until linked
+      {%- else %}nobody is being skipped{% endif -%}
+    </span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-card__label">Rules in force</span>
+    <span class="stat-card__value">{{ rules | selectattr('enabled') | list | length }}</span>
+    <span class="stat-card__foot">of {{ rules | length }} defined</span>
+  </div>
+</div>
+{% endif %}
+
+{% if summary.single_user %}
+<div class="callout callout--info">
+  <span class="callout__icon">{{ icons.icon('info', 16) }}</span>
+  <div class="callout__body">
+    <strong>You are the only account on this server.</strong>
+    <div class="small muted">
+      Every rule simply applies to you, which is why the rule editor shows no
+      per-user timers. They appear automatically once someone joins your Plex
+      Home or you share a library.
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if summary.shared_unlinked %}
+<div class="callout callout--warn">
+  <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
+  <div class="callout__body">
+    <strong>{{ summary.shared_unlinked }} shared
+      account{{ '' if summary.shared_unlinked == 1 else 's' }}
+      still need{{ 's' if summary.shared_unlinked == 1 else '' }} a token.</strong>
+    <div class="small muted">
+      Plex lets a server owner mint tokens for Plex Home members, but not for
+      friends with their own Plex account — there is no admin route to those.
+      Open the account and paste a token they generated from a Plex Web session.
+      Until then every run skips them.
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if users and not summary.linked %}
+{# Accounts exist but not one of them can be acted as, so every run is a no-op
+   whatever the rules say. That is an empty state, not a warning banner. #}
+<section class="panel panel--warn">
+  {{ blank.state('alert', 'No account is linked, so every run does nothing',
+     'A token only reads and writes the watch state of the account it belongs
+      to. Until at least one account here has a working token, every rule is
+      evaluated and then skipped for everybody.',
+     ['Open an account below — clicking anywhere on its card opens the detail panel.' | safe,
+      'For the owner, a Home member or a managed profile, press <strong>Let Plex mint a token</strong>. A PIN-protected profile asks for its PIN first.' | safe,
+      'For a shared friend, use <strong>Paste a token</strong>: they sign in as themselves, open any item → <em>Get Info</em> → <em>View XML</em>, and copy <span class="mono">X-Plex-Token</span> out of the address bar.' | safe,
+      'Press <strong>Refresh from Plex</strong> if somebody is missing from the list entirely.' | safe]) }}
+</section>
+{% endif %}
+
+{% if not users %}
+<section class="panel">
+  {% call blank.state('users', 'No accounts discovered yet',
+      'Plex keeps watch state per account, so Unwatcharr needs the account list
+       before a run can do anything. It reads your Plex Home, the friends this
+       server is shared with, and the accounts the server itself has seen play
+       something.',
+      ['Press <strong>Refresh from Plex</strong> below to build the list.' | safe,
+       'If it comes back empty, check <strong>Settings → Plex</strong> — an account list needs a working owner token.' | safe,
+       'Open each account and link it: Home and managed profiles get a token minted on request; a shared friend has to paste one in.' | safe]) %}
+    <button type="button" class="btn btn--primary"
+            onclick="act('/api/users/refresh', {method:'POST', source:this}, 'Users refreshed from Plex.')">
+      {{ icons.icon('users', 15) }} Refresh from Plex
+    </button>
+  {% endcall %}
+</section>
+{% endif %}
+
+{# --------------------------------------------------------------- the matrix #}
+<div class="usergrid">
+{% for user in users %}
+  {% set counts = policy.get(user.id, {'applies': 0, 'custom': 0, 'excluded': 0, 'total': 0}) %}
+  {% set seen = activity.get(user.id, {'total': 0, 'relative': 'never', 'last': none}) %}
+  <article class="usercard usercard--{{ user.kind }} {{ '' if user.enabled else 'usercard--off' }}"
+           data-user-id="{{ user.id }}" data-user-name="{{ user.title }}"
+           onclick="cardOpen(event, this)">
+
+    <header class="usercard__head">
+      {{ avatar(user, 'lg') }}
+      <div class="usercard__id">
+        <button type="button" class="usercard__name" onclick="openUser(this)">
+          {{ user.title }}
+        </button>
+        <span class="usercard__handle truncate">
+          {%- if user.username and user.username != user.title -%}
+            {{ user.username }}
+          {%- else -%}
+            <span class="faint">{{ user.plex_id }}</span>
+          {%- endif -%}
+        </span>
+      </div>
+      <div class="usercard__kinds">{{ kindbadge(user) }}</div>
+    </header>
+
+    <div class="usercard__state">
+      <div class="ustate">
+        <span class="ustate__label caps">Connection</span>
+        <span class="ustate__value cluster cluster--tight">{{ tokenstate(user) }}</span>
+        <span class="ustate__note tiny faint">
+          {%- if user.token_checked_at %}checked {{ user.token_checked_at | when }}
+          {%- elif user.auto_linkable %}can be linked from Plex
+          {%- else %}needs a pasted token{% endif -%}
+        </span>
+      </div>
+      <div class="ustate" data-stop>
+        <span class="ustate__label caps">In runs</span>
+        <label class="switch" title="Include this user in scheduled and manual runs">
+          <input type="checkbox" class="switch__input" {{ 'checked' if user.enabled }}
+                 onchange="toggleUser(this)">
+          <span class="switch__track" aria-hidden="true"></span>
+          <span class="switch__text">{{ 'Active' if user.enabled else 'Paused' }}</span>
+        </label>
+        <span class="ustate__note tiny faint">
+          {{ 'scanned every run' if user.enabled else 'never scanned' }}
+        </span>
+      </div>
+    </div>
+
+    <dl class="usercard__facts">
+      <div class="ufact">
+        <dt>Rules</dt>
+        <dd>
+          <strong>{{ counts.applies }}</strong> of {{ counts.total }}
+          {%- if counts.excluded %} <span class="text-danger">· {{ counts.excluded }} opted out</span>{% endif %}
+          {%- if counts.custom %} <span class="text-brand">· {{ counts.custom }} custom</span>{% endif %}
+        </dd>
+      </div>
+      <div class="ufact">
+        <dt>Changes made</dt>
+        <dd><strong>{{ seen.total }}</strong> <span class="muted">· last {{ seen.relative }}</span></dd>
+      </div>
+      <div class="ufact ufact--wide">
+        <dt>Most recent</dt>
+        <dd class="truncate">
+          {%- if seen.last %}{{ seen.last.display_title }}
+          {%- else %}<span class="faint">nothing has been changed for this account yet</span>{% endif -%}
+        </dd>
+      </div>
+    </dl>
+
+    <footer class="usercard__foot" data-stop>
+      <button type="button" class="btn btn--sm" onclick="openUser(this)">
+        {{ icons.icon('search', 14) }} Details
+      </button>
+      <button type="button" class="btn btn--sm {{ 'btn--primary' if not user.linked }}"
+              onclick="openUser(this, 'connection')">
+        {{ icons.icon('unlock', 14) }}
+        {%- if user.auto_linkable %} {{ 'Re-link' if user.linked else 'Link from Plex' }}
+        {%- else %} {{ 'Replace token' if user.linked else 'Paste token' }}{% endif %}
+      </button>
+      <span class="usercard__spacer"></span>
+      <button type="button" class="btn btn--sm btn--ghost" onclick="openUser(this, 'policy')">
+        {{ icons.icon('rules', 14) }} Policy
+      </button>
+    </footer>
+  </article>
+{% endfor %}
+</div>
+
+{#- ------------------------------------------------------------------ detail
+    One dialog, one hidden <section> per user. Progressive disclosure: identity
+    is always visible, and Connection / Rule policy / Activity / Remove are
+    folded away, each summary naming what it holds. Connection opens itself
+    whenever there is nothing usable to run with. -#}
+{% if users %}
+<dialog id="user-dialog" class="dialog--wide dialog--user" aria-labelledby="user-dialog-title">
+  <div class="dialog__head">
+    <h2 class="dialog__title" id="user-dialog-title">User</h2>
+    <button type="button" class="btn btn--icon btn--ghost udialog__close"
+            aria-label="Close" onclick="document.getElementById('user-dialog').close()">
+      {{ icons.icon('close', 16) }}
+    </button>
+  </div>
+
+  <div class="dialog__body">
+  {% for user in users %}
+    {% set uov = overrides.get(user.id, {}) %}
+    {% set counts = policy.get(user.id, {'applies': 0, 'custom': 0, 'excluded': 0, 'total': 0}) %}
+    {% set seen = activity.get(user.id, {'total': 0, 'relative': 'never', 'last': none}) %}
+    <section class="udetail" id="udetail-{{ user.id }}" hidden
+             data-user-id="{{ user.id }}" data-user-name="{{ user.title }}"
+             data-protected="{{ 'true' if user.protected else 'false' }}">
+
+      {# --- identity, always visible ----------------------------------- #}
+      <div class="uident">
+        {{ avatar(user, 'lg') }}
+        <div class="uident__text">
+          <div class="cluster cluster--tight">{{ kindbadge(user) }}</div>
+          <p class="uident__explain small muted">{{ KIND_EXPLAIN.get(user.kind, '') }}</p>
+          <dl class="uident__meta tiny">
+            {% if user.username %}
+            <div><dt>Plex username</dt><dd>{{ user.username }}</dd></div>
+            {% endif %}
+            <div><dt>Internal id</dt><dd class="mono">{{ user.plex_id }}</dd></div>
+            <div><dt>Token last checked</dt>
+              <dd>{{ user.token_checked_at | when if user.token_checked_at else 'never' }}</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      {# --- connection -------------------------------------------------- #}
+      <details class="disclosure udisc" data-section="connection"
+               {{ 'open' if (not user.linked or user.token_status == 'invalid') }}>
+        <summary>
+          {{ icons.icon('unlock', 15) }} Connection
+          <span class="cluster cluster--tight udisc__state">{{ tokenstate(user) }}</span>
+        </summary>
+        <div class="disclosure__body stack stack--sm">
+
+          {% if user.token_status == 'invalid' %}
+          <div class="callout callout--err">
+            <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
+            <div class="callout__body">
+              <strong>Plex rejected this token the last time it was used.</strong>
+              <div class="small muted">
+                The run that found this changed nothing for this account rather
+                than guessing. Link again, or paste a fresh token.
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if user.auto_linkable %}
+          <div class="uconn">
+            <div class="uconn__text">
+              <strong class="small">Let Plex mint a token</strong>
+              <p class="tiny muted mb-0">
+                Unwatcharr switches to this profile with your plex.tv sign-in and
+                asks Plex for a server token. Nothing is typed in by hand.
+              </p>
+            </div>
+            {% if user.protected %}
+            <div class="field field--fixed">
+              <label class="field__label" for="pin-{{ user.id }}">Profile PIN</label>
+              <input class="input input--sm upin" id="pin-{{ user.id }}" type="password"
+                     inputmode="numeric" autocomplete="off" maxlength="8" placeholder="••••">
+            </div>
+            {% endif %}
+            <button type="button" class="btn btn--primary" onclick="linkUser(this)">
+              {{ 'Re-link' if user.linked else 'Link now' }}
+            </button>
+          </div>
+          {% else %}
+          <div class="callout callout--info">
+            <span class="callout__icon">{{ icons.icon('info', 16) }}</span>
+            <div class="callout__body">
+              <strong>Plex will not issue a token for a shared account.</strong>
+              <div class="small muted">
+                This person has their own Plex account rather than being in your
+                Plex Home, so there is no admin route to their token. They have
+                to send you one: signed in to Plex Web as themselves, open any
+                item's <em>Get Info → View XML</em> and copy the
+                <code>X-Plex-Token</code> value out of the address bar.
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          {#- The paste fallback exists for EVERY kind, not only shared users.
+              Minting also fails whenever the plex.tv sign-in has lapsed, and a
+              dead end there would leave the account permanently unusable. -#}
+          <details class="disclosure utoken" {{ 'open' if not user.auto_linkable }}>
+            <summary>
+              {{ icons.icon('shield', 15) }} Paste a token
+              <span class="disclosure__hint">
+                {%- if user.auto_linkable %}if linking is not available
+                {%- else %}the only route for this account{% endif -%}
+              </span>
+            </summary>
+            <div class="disclosure__body">
+              <form class="tokenform" onsubmit="return saveToken(event, this)">
+                <div class="field tokenform__field">
+                  <label class="field__label" for="tok-{{ user.id }}">Plex token</label>
+                  <input class="input utoken__input" id="tok-{{ user.id }}" type="password"
+                         autocomplete="off" spellcheck="false"
+                         placeholder="paste the X-Plex-Token value">
+                  <span class="field__hint">
+                    Checked against your server before it is stored — a token that
+                    cannot read the library is worse than none, because it would
+                    fail quietly on every scheduled run. Kept server-side,
+                    redacted from logs, and never sent back to a browser.
+                  </span>
+                </div>
+                <button type="submit" class="btn btn--primary">Save token</button>
+              </form>
+            </div>
+          </details>
+
+          <label class="check">
+            <input type="checkbox" {{ 'checked' if user.enabled }} onchange="toggleUser(this)">
+            <span class="check__text">Include this user in runs
+              <span class="check__hint">
+                Off means every rule skips them, whatever the policy below says.
+              </span></span>
+          </label>
+        </div>
+      </details>
+
+      {# --- the per-user rule override matrix --------------------------- #}
+      <details class="disclosure udisc" data-section="policy">
+        <summary>
+          {{ icons.icon('rules', 15) }} Rule policy
+          <span class="disclosure__hint">
+            {{ counts.applies }} of {{ counts.total }} rules reach them
+            {%- if counts.custom %}, {{ counts.custom }} on a custom timer{% endif -%}
+            {%- if counts.excluded %}, {{ counts.excluded }} opted out{% endif -%}
+          </span>
+        </summary>
+        <div class="disclosure__body">
+          {% if not rules %}
+          <p class="small muted mb-0">
+            No rules exist yet, so nothing reaches this account. Create one on
+            the <a href="/rules">Rules</a> page.
+          </p>
+          {% else %}
+          <p class="small muted">
+            An override only ever narrows or re-times one rule for one person.
+            A blank timer inherits the rule's own, so changing that rule later
+            still moves everyone who never set their own.
+          </p>
+          <div class="tablewrap">
+          <table class="polmatrix">
+            <thead>
+              <tr>
+                <th scope="col">Rule</th>
+                <th scope="col">Applies</th>
+                <th scope="col">Their timer</th>
+                <th scope="col">Resolves to</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for rule in rules %}
+              {% set o = uov.get(rule.id) %}
+              {% set opted_out = o and not o.enabled %}
+              {% set own_value = o.age_value if (o and o.age_value is not none) else '' %}
+              {% set own_unit = o.age_unit if (o and o.age_unit) else rule.age_unit %}
+              <tr class="polrow {{ 'polrow--out' if opted_out }}"
+                  data-rule-id="{{ rule.id }}"
+                  data-rule-default="{{ rule | threshold }}"
+                  data-init-enabled="{{ 'false' if opted_out else 'true' }}"
+                  data-init-value="{{ own_value }}"
+                  data-init-unit="{{ own_unit }}">
+                <th scope="row" class="polrow__rule">
+                  <span class="polrow__name">{{ rule.name }}</span>
+                  <span class="polrow__meta tiny faint">
+                    {{ rule.media_type }} · default {{ rule | threshold }}
+                    {%- if not rule.enabled %} · <span class="text-warn">rule disabled</span>{% endif -%}
+                  </span>
+                </th>
+                <td class="polrow__on">
+                  <input type="checkbox" class="pol-enabled" {{ '' if opted_out else 'checked' }}
+                         onchange="paintPolicy(this)"
+                         aria-label="Apply this rule to this user">
+                </td>
+                <td class="polrow__timer">
+                  <input type="number" class="input input--num input--sm pol-value"
+                         min="0" max="9999" step="1" value="{{ own_value }}"
+                         placeholder="{{ rule.age_value }}" oninput="paintPolicy(this)"
+                         aria-label="Custom timer value, blank to inherit the rule default">
+                  <select class="select input--sm pol-unit" onchange="paintPolicy(this)"
+                          aria-label="Custom timer unit">
+                    {% for unit in schema.age_units %}
+                    <option value="{{ unit }}" {{ 'selected' if unit == own_unit }}>{{ unit }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td class="polrow__effect small">
+                  {%- if opted_out -%}
+                    <span class="text-danger">Never — opted out</span>
+                  {%- elif own_value != '' -%}
+                    <span class="text-brand">{{ own_value }} {{ own_unit }}</span>
+                  {%- else -%}
+                    <span class="muted">Inherits {{ rule | threshold }}</span>
+                  {%- endif -%}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          </div>
+          <div class="polfoot">
+            <span class="small faint polfoot__status">Nothing is saved until you press Save policy.</span>
+            <button type="button" class="btn btn--primary" onclick="savePolicy(this)">Save policy</button>
+          </div>
+          {% endif %}
+        </div>
+      </details>
+
+      {# --- activity ---------------------------------------------------- #}
+      <details class="disclosure udisc" data-section="activity">
+        <summary>
+          {{ icons.icon('history', 15) }} Activity
+          <span class="disclosure__hint">
+            {{ seen.total }} change{{ '' if seen.total == 1 else 's' }} · last {{ seen.relative }}
+          </span>
+        </summary>
+        <div class="disclosure__body stack stack--sm">
+          {% if seen.last %}
+          <div class="uactivity">
+            {% if seen.last.thumb %}
+            <img class="uactivity__art" src="/api/thumb?path={{ seen.last.thumb | urlencode }}"
+                 alt="" loading="lazy" width="40" height="60">
+            {% endif %}
+            <div class="uactivity__text">
+              <span class="strong small">{{ seen.last.display_title }}</span>
+              <span class="tiny muted">
+                {{ seen.last.rule_name or 'rule since deleted' }} ·
+                {{ seen.last.applied_at | when }} ·
+                {%- if seen.last.undone_at %} undone {{ seen.last.undone_at | when }}
+                {%- else %} {{ seen.last.status }}{% endif %}
+              </span>
+            </div>
+          </div>
+          <p class="small muted mb-0">
+            {{ seen.total }} change{{ '' if seen.total == 1 else 's' }}
+            {{ 'has' if seen.total == 1 else 'have' }} been recorded for this
+            account. Dry runs never count here — only what really happened in Plex.
+          </p>
+          {% else %}
+          <p class="small muted mb-0">
+            Nothing has been changed for this account yet.
+            {%- if not user.linked %} It has no working token, so every run skips it.
+            {%- elif not user.enabled %} It is switched out of runs.
+            {%- elif counts.applies == 0 %} No enabled rule reaches it.
+            {%- endif %}
+          </p>
+          {% endif %}
+          <a class="btn btn--sm" href="/history">{{ icons.icon('history', 14) }} Open history</a>
+        </div>
+      </details>
+
+      {# --- removal ----------------------------------------------------- #}
+      {% if user.kind != 'owner' %}
+      <details class="disclosure udisc udisc--danger" data-section="remove">
+        <summary>
+          {{ icons.icon('alert', 15) }} Remove this account
+          <span class="disclosure__hint">deletes their overrides, not their Plex account</span>
+        </summary>
+        <div class="disclosure__body">
+          <p class="small muted">
+            Removing them from Unwatcharr deletes the stored token and every
+            per-user override attached to them. It touches nothing in Plex, and
+            a refresh from Plex will simply discover them again — with no token
+            and no overrides.
+          </p>
+          <button type="button" class="btn btn--danger" onclick="removeUser(this)">
+            {{ icons.icon('close', 14) }} Remove this account
+          </button>
+        </div>
+      </details>
+      {% else %}
+      <p class="small faint udetail__note">
+        The owner account cannot be removed — its token is the server token every
+        other lookup depends on.
+      </p>
+      {% endif %}
+    </section>
+  {% endfor %}
+  </div>
+
+  <div class="dialog__foot">
+    <span class="small faint udialog__note">
+      The token and the run switch save immediately. Policy changes wait for Save policy.
+    </span>
+    <button type="button" class="btn" onclick="document.getElementById('user-dialog').close()">Close</button>
+  </div>
+</dialog>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* Every handler is passed the element it fired from and reads the user off the
+   nearest [data-user-id]. Nothing about a user is interpolated into markup or
+   into a JS string literal by the template. */
+function uRoot(source) { return source.closest("[data-user-id]"); }
+function uId(source) { return uRoot(source).getAttribute("data-user-id"); }
+function uName(source) { return uRoot(source).getAttribute("data-user-name"); }
+
+/* ---------------------------------------------------------- the detail panel */
+
+function openUser(source, section) {
+  var id = uId(source);
+  var dialog = document.getElementById("user-dialog");
+  if (!dialog) { return; }
+
+  var panels = dialog.querySelectorAll(".udetail");
+  for (var i = 0; i < panels.length; i++) {
+    panels[i].hidden = panels[i].getAttribute("data-user-id") !== id;
+  }
+  var panel = document.getElementById("udetail-" + id);
+  if (!panel) { return; }
+
+  // textContent, never innerHTML: a Plex display name is arbitrary user text.
+  document.getElementById("user-dialog-title").textContent = uName(source);
+
+  var target = section
+    ? panel.querySelector('.udisc[data-section="' + section + '"]')
+    : null;
+  if (target) { target.open = true; }
+
+  if (!dialog.open) { dialog.showModal(); }
+  dialog.querySelector(".dialog__body").scrollTop = 0;
+  if (target) { target.scrollIntoView({ block: "nearest" }); }
+}
+
+// The whole card opens the panel, except where a control already means
+// something else — the run switch and the action footer are marked [data-stop].
+function cardOpen(event, card) {
+  if (event.target.closest("[data-stop]")) { return; }
+  openUser(card);
+}
+
+/* ------------------------------------------------------------------- linking */
+
+function toggleUser(source) {
+  act("/api/users/" + uId(source) + "/toggle", { method: "POST", source: source },
+      "User updated.");
+}
+
+function linkUser(source) {
+  var root = uRoot(source);
+  var pinField = root.querySelector(".upin");
+  var pin = pinField ? pinField.value.trim() : "";
+  if (root.getAttribute("data-protected") === "true" && !pin) {
+    toast("That profile is PIN-protected — enter its Plex PIN first.", "warn");
+    if (pinField) { pinField.focus(); }
+    return;
+  }
+  act("/api/users/" + uId(source) + "/link",
+      { method: "POST", body: { pin: pin }, source: source },
+      "Linked — Plex accepted the token.");
+}
+
+function saveToken(event, form) {
+  event.preventDefault();
+  var field = form.querySelector(".utoken__input");
+  var token = (field.value || "").trim();
+  if (!token) {
+    toast("Paste a token first.", "warn");
+    field.focus();
+    return false;
+  }
+  act("/api/users/" + uId(form) + "/token",
+      { method: "POST", body: { token: token }, source: form.querySelector("button") },
+      "Token saved — Plex accepted it.");
+  return false;
+}
+
+function removeUser(source) {
+  var id = uId(source);
+  confirmDialog({
+    title: "Remove " + uName(source) + "?",
+    body: [
+      "Their stored token and every per-user override attached to them are deleted.",
+      "Nothing changes in Plex, and refreshing from Plex will discover them again with no token and no overrides."
+    ],
+    confirmLabel: "Remove",
+    tone: "danger"
+  }).then(function (ok) {
+    if (!ok) { return; }
+    act("/api/users/" + id, { method: "DELETE", source: source }, "User removed.");
+  });
+}
+
+/* ------------------------------------------------------------- policy matrix */
+
+function polState(row) {
+  return {
+    enabled: row.querySelector(".pol-enabled").checked,
+    value: (row.querySelector(".pol-value").value || "").trim(),
+    unit: row.querySelector(".pol-unit").value
+  };
+}
+
+// Repaint "resolves to" and mark the row dirty against what the server sent.
+// Inheritance is the thing people reason about wrongly, so the answer stays on
+// screen rather than being something to work out.
+function paintPolicy(source) {
+  var row = source.closest(".polrow");
+  var state = polState(row);
+
+  var effect = row.querySelector(".polrow__effect");
+  effect.textContent = "";
+  var span = document.createElement("span");
+  if (!state.enabled) {
+    span.className = "text-danger";
+    span.textContent = "Never — opted out";
+  } else if (state.value !== "") {
+    span.className = "text-brand";
+    span.textContent = state.value + " " + state.unit;
+  } else {
+    span.className = "muted";
+    span.textContent = "Inherits " + row.getAttribute("data-rule-default");
+  }
+  effect.appendChild(span);
+
+  row.classList.toggle("polrow--out", !state.enabled);
+  var dirty =
+    String(state.enabled) !== row.getAttribute("data-init-enabled") ||
+    state.value !== row.getAttribute("data-init-value") ||
+    (state.value !== "" && state.unit !== row.getAttribute("data-init-unit"));
+  row.classList.toggle("polrow--dirty", dirty);
+  paintPolicyFoot(row.closest(".udetail"));
+}
+
+function paintPolicyFoot(panel) {
+  var status = panel.querySelector(".polfoot__status");
+  if (!status) { return; }
+  var dirty = panel.querySelectorAll(".polrow--dirty").length;
+  status.textContent = dirty
+    ? dirty + " rule" + (dirty === 1 ? "" : "s") + " changed — not saved yet."
+    : "Nothing is saved until you press Save policy.";
+  status.classList.toggle("text-warn", dirty > 0);
+  status.classList.toggle("faint", dirty === 0);
+}
+
+// Overrides have no endpoint of their own: they ride along on PATCH /rules/{id}.
+// Two consequences this has to respect.
+//
+//  1. The rule is re-validated, and `include_filters` / `exclude_filters`
+//     default to EMPTY when absent rather than to the stored value — so a naive
+//     PATCH would silently wipe a rule's filters. The rule is read back first
+//     and its filters are sent through unchanged.
+//  2. `user_overrides` carries only the rows that actually changed, one user at
+//     a time. The server treats an absent or empty list as "this form did not
+//     carry the table" and leaves everyone alone — that is the v1 trap — and
+//     one entry can only ever touch that one person on that one rule.
+async function savePolicy(button) {
+  var panel = uRoot(button);
+  var userId = Number(panel.getAttribute("data-user-id"));
+  var rows = panel.querySelectorAll(".polrow--dirty");
+  if (!rows.length) {
+    toast("No policy changes to save.", "info");
+    return;
+  }
+
+  button.disabled = true;
+  var saved = 0;
+  try {
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var state = polState(row);
+      var ruleId = row.getAttribute("data-rule-id");
+      var rule = await api("/api/rules/" + ruleId);
+      await api("/api/rules/" + ruleId, {
+        method: "PATCH",
+        body: {
+          include_filters: rule.include_filters,
+          exclude_filters: rule.exclude_filters,
+          user_overrides: [{
+            user_id: userId,
+            enabled: state.enabled,
+            // "" is the documented way back to inherit: it stores NULL rather
+            // than a copy of the rule's current timer.
+            age_value: state.value === "" ? "" : Number(state.value),
+            age_unit: state.value === "" ? "" : state.unit
+          }]
+        }
+      });
+      saved += 1;
+    }
+    toast("Policy saved on " + saved + " rule" + (saved === 1 ? "" : "s") + ".", "ok");
+    setTimeout(function () { window.location.reload(); }, 400);
+  } catch (err) {
+    button.disabled = false;
+    toast(errorText(err), "err");
+  }
+}
+</script>
+{% endblock %}

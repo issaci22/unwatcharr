@@ -1,0 +1,34 @@
+# TrueNAS SCALE / prebuilt-image compose file.
+#
+# Expects `unwatcharr:latest` to already exist on the host -- build it once with
+# `docker compose -f docker-compose.yml build`, or load an image exported from
+# elsewhere with `docker load`.
+#
+# Set PUID/PGID to the owner of the dataset you mount at /config. `ls -n` on the
+# host shows the numeric ids. Getting this wrong is the single most common cause
+# of a container that will not start: the app cannot write its database and says
+# so in the log.
+
+services:
+  unwatcharr:
+    image: unwatcharr:latest
+    container_name: unwatcharr
+    ports:
+      - "8577:8577"
+    volumes:
+      # Point this at a dataset, e.g. /mnt/tank/apps/unwatcharr
+      - /mnt/tank/apps/unwatcharr:/config
+    environment:
+      TZ: America/New_York
+      PUID: "568"          # `apps` on TrueNAS SCALE
+      PGID: "568"
+      PORT: "8577"
+      LOG_LEVEL: info
+    mem_limit: 256m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8577/healthz',timeout=4)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

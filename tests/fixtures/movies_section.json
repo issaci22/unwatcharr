@@ -1,0 +1,95 @@
+{
+  "MediaContainer": {
+    "size": 6,
+    "totalSize": 6,
+    "allowSync": true,
+    "identifier": "com.plexapp.plugins.library",
+    "librarySectionID": 1,
+    "librarySectionTitle": "Movies",
+    "viewGroup": "movie",
+    "Metadata": [
+      {
+        "ratingKey": "1001",
+        "key": "/library/metadata/1001",
+        "guid": "plex://movie/5d7768ba96b655001fdc0431",
+        "type": "movie",
+        "title": "Blade Runner 2049",
+        "year": 2017,
+        "thumb": "/library/metadata/1001/thumb/1600000000",
+        "art": "/library/metadata/1001/art/1600000000",
+        "duration": 9784000,
+        "addedAt": 1500000000,
+        "updatedAt": 1500000001,
+        "viewCount": 2,
+        "lastViewedAt": 1668000000,
+        "Genre": [{ "tag": "Sci-Fi" }, { "tag": "Drama" }],
+        "Collection": [{ "tag": "Blade Runner" }]
+      },
+      {
+        "ratingKey": "1002",
+        "key": "/library/metadata/1002",
+        "type": "movie",
+        "title": "Arrival",
+        "year": 2016,
+        "thumb": "/library/metadata/1002/thumb/1600000000",
+        "duration": 6960000,
+        "addedAt": 1500000000,
+        "viewCount": 1,
+        "lastViewedAt": 1699000000,
+        "Genre": [{ "tag": "Sci-Fi" }]
+      },
+      {
+        "ratingKey": "1003",
+        "key": "/library/metadata/1003",
+        "type": "movie",
+        "title": "Dune",
+        "year": 2021,
+        "thumb": "/library/metadata/1003/thumb/1600000000",
+        "duration": 9360000,
+        "addedAt": 1600000000,
+        "viewCount": 1,
+        "lastViewedAt": 1660000000,
+        "viewOffset": 4200000,
+        "Genre": [{ "tag": "Sci-Fi" }],
+        "Collection": [{ "tag": "Dune" }]
+      },
+      {
+        "ratingKey": "1004",
+        "key": "/library/metadata/1004",
+        "type": "movie",
+        "title": "The Lighthouse",
+        "year": 2019,
+        "thumb": "/library/metadata/1004/thumb/1600000000",
+        "duration": 6540000,
+        "addedAt": 1600000000,
+        "Genre": [{ "tag": "Horror" }]
+      },
+      {
+        "ratingKey": "1005",
+        "key": "/library/metadata/1005",
+        "type": "movie",
+        "title": "Paddington 2",
+        "year": 2017,
+        "thumb": "/library/metadata/1005/thumb/1600000000",
+        "duration": 6180000,
+        "addedAt": 1600000000,
+        "viewCount": 4,
+        "lastViewedAt": 1650000000,
+        "Genre": [{ "tag": "Comedy" }],
+        "Label": [{ "tag": "Kids" }]
+      },
+      {
+        "ratingKey": "1006",
+        "key": "/library/metadata/1006",
+        "type": "movie",
+        "title": "Stalker",
+        "year": 1979,
+        "thumb": "/library/metadata/1006/thumb/1600000000",
+        "duration": 9660000,
+        "addedAt": 1600000000,
+        "viewCount": 1,
+        "Genre": [{ "tag": "Sci-Fi" }]
+      }
+    ]
+  }
+}

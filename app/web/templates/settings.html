@@ -1,0 +1,637 @@
+{% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% block title %}Settings — {{ app_name }}{% endblock %}
+
+{#- One hub, six panels. Every configuration key in CONFIG_DEFAULTS that a
+    person may change appears exactly once, grouped by the decision it belongs
+    to rather than by the table it lives in.
+
+    Safe mode is the exception to everything: it has its own endpoint, its own
+    amber banner and its own confirmation, and it is never a checkbox inside
+    the form that Save writes. -#}
+
+{% set sched = status.schedule %}
+{% set tabs = [
+  ('plex',    'Plex',           'server'),
+  ('sched',   'Scheduling',     'clock'),
+  ('safety',  'Safety',         'shield'),
+  ('notify',  'Notifications',  'info'),
+  ('auth',    'Authentication', 'unlock'),
+  ('system',  'System status',  'settings'),
+] %}
+
+{% block content %}
+<div class="pagehead">
+  <div class="pagehead__text">
+    <h1 class="pagehead__title">Settings</h1>
+    <p class="pagehead__sub">
+      How this connects to Plex, when it runs, and how careful it is being.
+      Timezone {{ status.app.timezone }}.
+    </p>
+  </div>
+  <div class="pagehead__actions">
+    <span class="chip">{{ icons.icon('server', 13) }} {{ app_name }} {{ version }}</span>
+  </div>
+</div>
+
+{# Amber, full width, above the tabs: whichever panel is open, the single most
+   important state in the app is already answered. #}
+{% if settings.safe_mode %}
+<div class="safebanner safebanner--on" role="status">
+  <span class="safebanner__icon">{{ icons.icon('shield', 22) }}</span>
+  <div class="safebanner__body">
+    <span class="safebanner__title">Safe mode is ON</span>
+    <p class="safebanner__text mb-0">
+      Every run — scheduled or manual — is calculated in full and then forced to
+      a dry run. <strong>Nothing in Plex will be changed.</strong> Previews and
+      history still work, so you can see exactly what would happen first.
+    </p>
+  </div>
+  <button type="button" class="btn btn--danger safebanner__action" onclick="setSafeMode(false, this)">
+    {{ icons.icon('unlock', 15) }} Turn safe mode OFF
+  </button>
+</div>
+{% else %}
+<div class="safebanner safebanner--off" role="status">
+  <span class="safebanner__icon">{{ icons.icon('alert', 22) }}</span>
+  <div class="safebanner__body">
+    <span class="safebanner__title">Safe mode is OFF</span>
+    <p class="safebanner__text mb-0">
+      Runs can really mark items unwatched in Plex. Changes are recorded in
+      History and can be undone, but <strong>Plex cannot restore the original
+      watch dates or play counts.</strong>
+    </p>
+  </div>
+  <button type="button" class="btn btn--primary safebanner__action" onclick="setSafeMode(true, this)">
+    {{ icons.icon('shield', 15) }} Turn safe mode ON
+  </button>
+</div>
+{% endif %}
+
+<div class="settabs" role="tablist" aria-label="Settings sections">
+  {% for key, label, mark in tabs %}
+  <button type="button" class="settab {{ 'is-active' if loop.first }}" role="tab"
+          id="settab-{{ key }}" data-settab="{{ key }}"
+          aria-controls="setpanel-{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
+    {{ icons.icon(mark, 15) }} {{ label }}
+  </button>
+  {% endfor %}
+</div>
+
+{# ====================================================================== plex #}
+<section class="setpanel" id="setpanel-plex" role="tabpanel" aria-labelledby="settab-plex">
+  <div class="panel">
+    <div class="panel__head">
+      <h2 class="panel__title">Plex connection</h2>
+      <span class="panel__hint">Read on the server, never sent to the browser</span>
+    </div>
+    <div class="panel__body stack">
+      <dl class="keygrid">
+        <div>
+          <dt>Server</dt>
+          <dd>{{ settings.plex_server_name or 'Not named' }}
+            {% if status.plex.connected %}
+            <span class="badge-new badge-new--ok">{{ icons.icon('check', 12) }} Connected</span>
+            {% else %}
+            <span class="badge-new badge-new--danger">{{ icons.icon('alert', 12) }} Not connected</span>
+            {% endif %}
+          </dd>
+        </div>
+        <div>
+          <dt>URL</dt>
+          <dd class="mono">{{ settings.plex_url or '—' }}</dd>
+        </div>
+        <div>
+          <dt>Machine id</dt>
+          <dd class="mono truncate">{{ settings.plex_machine_id or '—' }}</dd>
+        </div>
+        <div>
+          <dt>Client id</dt>
+          <dd class="mono truncate">{{ settings.client_identifier or '—' }}</dd>
+        </div>
+        <div>
+          <dt>Account token</dt>
+          <dd>
+            <span class="mono">••••••••••••••••••••</span>
+            <span class="field__hint">
+              Stored server-side and never rendered into this page. Reconnect to replace it.
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt>Per-user tokens</dt>
+          <dd>
+            {{ status.users.linked }} of {{ status.users.total }} linked
+            {% if status.users.expired %}
+            <span class="badge-new badge-new--danger">{{ status.users.expired }} rejected</span>
+            {% endif %}
+            <span class="field__hint">
+              Plex watch state is per account, so each user needs their own token.
+              Manage them on <a href="/users">Users</a>.
+            </span>
+          </dd>
+        </div>
+      </dl>
+
+      <label class="check">
+        <input type="checkbox" id="plex_verify_ssl" {{ 'checked' if settings.plex_verify_ssl }}>
+        <span class="check__text">Verify the Plex TLS certificate
+          <span class="check__hint">Off by default: Plex serves a
+            <span class="mono">*.plex.direct</span> certificate that will not
+            validate for a raw LAN IP.</span></span>
+      </label>
+
+      <div class="cluster">
+        <button type="button" class="btn"
+                onclick="act('/api/settings/test-connection', {method:'POST', reload:false, source:this}, 'Connection OK.')">
+          {{ icons.icon('check', 15) }} Test connection
+        </button>
+        <a class="btn" href="/setup">{{ icons.icon('server', 15) }} Reconnect to a different server</a>
+        <button type="button" class="btn"
+                onclick="act('/api/libraries/refresh', {method:'POST', source:this}, 'Libraries refreshed.')">
+          {{ icons.icon('rules', 15) }} Refresh libraries
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ================================================================ scheduling #}
+<section class="setpanel" id="setpanel-sched" role="tabpanel" aria-labelledby="settab-sched" hidden>
+  <div class="panel">
+    <div class="panel__head">
+      <h2 class="panel__title">Schedule</h2>
+      <span class="panel__hint">
+        {% if sched.enabled and sched.next_run_at %}Next run {{ sched.next_run_at | when }} ({{ sched.next_run_at | until }})
+        {% elif sched.enabled %}Enabled, nothing scheduled yet
+        {% else %}Automatic runs are off{% endif %}
+      </span>
+    </div>
+    <div class="panel__body stack">
+      <label class="check">
+        <input type="checkbox" id="schedule_enabled" {{ 'checked' if settings.schedule_enabled }}>
+        <span class="check__text">Run automatically
+          <span class="check__hint">With this off, runs only happen when you press Run now.</span></span>
+      </label>
+
+      <div class="formrow">
+        <div class="field">
+          <label class="field__label" for="schedule_kind">How the timer is expressed</label>
+          <select class="select" id="schedule_kind" onchange="paintSchedule()">
+            {% for kind in schema.schedule_kinds %}
+            <option value="{{ kind }}" {{ 'selected' if settings.schedule_kind == kind }}>
+              {{ 'Every N hours' if kind == 'interval' else 'Cron expression' }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field" id="field-hours">
+          <label class="field__label" for="schedule_hours">Interval (hours)</label>
+          <input class="input input--num" id="schedule_hours" type="number" min="1" max="720"
+                 value="{{ settings.schedule_hours }}">
+          <span class="field__hint">1 to 720.</span>
+        </div>
+        <div class="field" id="field-cron">
+          <label class="field__label" for="schedule_cron">Cron expression</label>
+          <input class="input mono" id="schedule_cron" type="text" value="{{ settings.schedule_cron }}"
+                 placeholder="0 4 * * *">
+          <span class="field__hint">Five fields, in {{ status.app.timezone }}.</span>
+        </div>
+      </div>
+
+      <label class="check">
+        <input type="checkbox" id="catch_up_missed_runs" {{ 'checked' if settings.catch_up_missed_runs }}>
+        <span class="check__text">Catch up shortly after boot if a whole interval was missed
+          <span class="check__hint">A NAS that was powered off over a weekend still gets its run.</span></span>
+      </label>
+
+      <dl class="keygrid">
+        <div><dt>Scheduler</dt><dd>{{ 'Running' if sched.running else 'Stopped' }}</dd></div>
+        <div><dt>Next run</dt><dd>{{ sched.next_run_at | when if sched.next_run_at else 'Not scheduled' }}</dd></div>
+        <div><dt>Last scheduled run</dt><dd>{{ sched.last_scheduled_run_at | when if sched.last_scheduled_run_at else 'Never' }}</dd></div>
+        <div><dt>Mode the next run will use</dt>
+          <dd>{% if settings.safe_mode %}<span class="text-warn strong">Dry run (safe mode)</span>
+              {% else %}<span class="text-danger strong">Apply — Plex will be modified</span>{% endif %}</dd></div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel__head"><h2 class="panel__title">Retention</h2></div>
+    <div class="panel__body stack">
+      <div class="formrow">
+        <div class="field">
+          <label class="field__label" for="history_keep_days">Keep history (days)</label>
+          <input class="input input--num" id="history_keep_days" type="number" min="1" max="3650"
+                 value="{{ settings.history_keep_days }}">
+        </div>
+        <div class="field">
+          <label class="field__label" for="dry_run_keep_days">Keep dry runs (days)</label>
+          <input class="input input--num" id="dry_run_keep_days" type="number" min="1" max="365"
+                 value="{{ settings.dry_run_keep_days }}">
+        </div>
+      </div>
+      <p class="muted small mb-0">
+        Pruning happens only on a scheduled run, so a burst of manual runs never
+        trims history while you are reading it. An action that is pruned can no
+        longer be undone.
+      </p>
+    </div>
+  </div>
+</section>
+
+{# ==================================================================== safety #}
+<section class="setpanel" id="setpanel-safety" role="tabpanel" aria-labelledby="settab-safety" hidden>
+  <div class="panel {{ 'panel--warn' if settings.safe_mode else 'panel--danger' }}">
+    <div class="panel__head">
+      <h2 class="panel__title">Safe mode</h2>
+      <span class="panel__hint">Its own endpoint, its own confirmation — never part of Save</span>
+    </div>
+    <div class="panel__body stack">
+      <p class="mb-0">
+        Safe mode is the difference between “this app can change my Plex watch
+        history” and “it cannot”. It is stored separately from every other
+        setting on this page and is not written by the Save button, so it can
+        never be flipped by accident while changing something else.
+      </p>
+      <dl class="keygrid">
+        <div><dt>Current state</dt>
+          <dd>{% if settings.safe_mode %}
+              <span class="badge-new badge-new--warn">{{ icons.icon('shield', 12) }} ON — nothing is changed</span>
+              {% else %}
+              <span class="badge-new badge-new--danger">{{ icons.icon('unlock', 12) }} OFF — Plex can be modified</span>
+              {% endif %}</dd></div>
+        <div><dt>What a run does now</dt>
+          <dd>{% if settings.safe_mode %}Scans, decides, records the candidates, changes nothing.
+              {% else %}Scans, decides, and marks matching items unwatched in Plex.{% endif %}</dd></div>
+        <div><dt>Before turning it off</dt>
+          <dd>Preview a rule from <a href="/rules">Rules</a> and read the matched
+              and skipped ledgers. A preview writes nothing.</dd></div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel__head"><h2 class="panel__title">Scanning</h2></div>
+    <div class="panel__body stack">
+      <div class="formrow">
+        <div class="field">
+          <label class="field__label" for="request_delay_ms">Delay between Plex requests (ms)</label>
+          <input class="input input--num" id="request_delay_ms" type="number" min="0" max="5000"
+                 value="{{ settings.request_delay_ms }}">
+          <span class="field__hint">Raise it if Plex gets sluggish during a run.</span>
+        </div>
+      </div>
+      <label class="check">
+        <input type="checkbox" id="server_side_filters" {{ 'checked' if settings.server_side_filters }}>
+        <span class="check__text">Let Plex pre-filter the library
+          <span class="check__hint">Faster on large libraries. Every item is
+            re-checked here regardless, so this can never cause a wrong change —
+            at worst a quirky server returns too few candidates. Turn it off if
+            scans seem to miss things.</span></span>
+      </label>
+    </div>
+  </div>
+</section>
+
+{# ============================================================= notifications #}
+<section class="setpanel" id="setpanel-notify" role="tabpanel" aria-labelledby="settab-notify" hidden>
+  <div class="panel">
+    <div class="panel__head">
+      <h2 class="panel__title">Notifications</h2>
+      <span class="panel__hint">One summary per run, at most</span>
+    </div>
+    <div class="panel__body stack">
+      <label class="check">
+        <input type="checkbox" id="notify_enabled" {{ 'checked' if settings.notify_enabled }}>
+        <span class="check__text">Send a summary after each run</span>
+      </label>
+
+      <div class="formrow">
+        <div class="field">
+          <label class="field__label" for="notify_kind">Destination type</label>
+          <select class="select" id="notify_kind">
+            {% for kind in schema.notify_kinds %}
+            <option value="{{ kind }}" {{ 'selected' if settings.notify_kind == kind }}>{{ kind }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field grow">
+          <label class="field__label" for="notify_url">Webhook URL</label>
+          <div class="secretfield">
+            <input class="input mono" id="notify_url" type="password" autocomplete="off"
+                   value="{{ settings.notify_url }}" placeholder="https://…">
+            <button type="button" class="btn btn--sm" data-secret-for="notify_url"
+                    aria-pressed="false" onclick="toggleSecret(this)">Show</button>
+          </div>
+          <span class="field__hint">
+            Masked because a Discord or ntfy URL is a credential — anyone with it
+            can post to that channel.
+          </span>
+        </div>
+      </div>
+
+      <label class="check">
+        <input type="checkbox" id="notify_on_dry_run" {{ 'checked' if settings.notify_on_dry_run }}>
+        <span class="check__text">Also notify for dry runs
+          <span class="check__hint">Off by default — with safe mode on that would be every run.</span></span>
+      </label>
+      <label class="check">
+        <input type="checkbox" id="notify_on_error_only" {{ 'checked' if settings.notify_on_error_only }}>
+        <span class="check__text">Only notify when something went wrong</span>
+      </label>
+
+      <p class="muted small mb-0">
+        A run that matched nothing and broke nothing never sends anything, and
+        previewing a rule never notifies.
+      </p>
+      <div class="cluster">
+        <button type="button" class="btn" onclick="testNotify(this)">
+          {{ icons.icon('info', 15) }} Send a test
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ============================================================ authentication #}
+<section class="setpanel" id="setpanel-auth" role="tabpanel" aria-labelledby="settab-auth" hidden>
+  <div class="panel {{ '' if settings.password_set else 'panel--warn' }}">
+    <div class="panel__head">
+      <h2 class="panel__title">Web UI password</h2>
+      <span class="panel__hint">
+        {% if settings.password_set %}A password is set{% else %}No password set{% endif %}
+      </span>
+    </div>
+    <div class="panel__body stack">
+      {% if not settings.password_set %}
+      <div class="callout callout--warn">
+        <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
+        <div class="callout__body">
+          <strong>Anyone who can reach this port can change your Plex watch history.</strong>
+          <p class="mb-0 small">Set a password before exposing this beyond your LAN.</p>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="formrow">
+        <div class="field grow">
+          <label class="field__label" for="password">Password</label>
+          <div class="secretfield">
+            <input class="input" id="password" type="password" autocomplete="new-password"
+                   placeholder="{{ '••••••••  (unchanged)' if settings.password_set else 'At least 6 characters' }}">
+            <button type="button" class="btn btn--sm" data-secret-for="password"
+                    aria-pressed="false" onclick="toggleSecret(this)">Show</button>
+          </div>
+          <span class="field__hint">
+            {% if settings.password_set %}Save an empty field to remove the password entirely.
+            {% else %}At least 6 characters.{% endif %}
+          </span>
+        </div>
+        <div class="field">
+          <span class="field__label">&nbsp;</span>
+          <button type="button" class="btn btn--primary" onclick="savePassword(this)">
+            {{ icons.icon('unlock', 15) }} Update password
+          </button>
+        </div>
+      </div>
+      <p class="muted small mb-0">
+        Changing or removing the password re-issues this session and signs out
+        every other one. The password is stored as a salted scrypt hash — it is
+        never rendered into this page.
+      </p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel__head"><h2 class="panel__title">Session cookie</h2></div>
+    <div class="panel__body">
+      <label class="check">
+        <input type="checkbox" id="secure_cookies" {{ 'checked' if settings.secure_cookies }}>
+        <span class="check__text">Only send the session cookie over HTTPS
+          <span class="check__hint">Turn this on only when this is behind a TLS
+            reverse proxy, or you will not be able to sign in over plain
+            HTTP.</span></span>
+      </label>
+    </div>
+  </div>
+</section>
+
+{# ============================================================= system status #}
+<section class="setpanel" id="setpanel-system" role="tabpanel" aria-labelledby="settab-system" hidden>
+  {% if status.warnings %}
+  <div class="panel panel--warn">
+    <div class="panel__head"><h2 class="panel__title">Wants attention</h2></div>
+    <div class="panel__body stack stack--sm">
+      {% for warning in status.warnings %}
+      <div class="callout callout--{{ 'err' if warning.level == 'err' else ('warn' if warning.level == 'warn' else 'info') }} mb-0">
+        <span class="callout__icon">{{ icons.icon('alert' if warning.level != 'info' else 'info', 16) }}</span>
+        <div class="callout__body small">{{ warning.message }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="panel">
+    <div class="panel__head">
+      <h2 class="panel__title">System</h2>
+      <span class="panel__hint">Everything below is read-only</span>
+    </div>
+    <div class="panel__body stack">
+      <dl class="keygrid">
+        <div><dt>Version</dt><dd class="mono">{{ status.app.version }}</dd></div>
+        <div><dt>Database schema</dt><dd class="mono">v{{ status.app.schema_version }}</dd></div>
+        <div><dt>Timezone</dt><dd class="mono">{{ status.app.timezone }}</dd></div>
+        <div><dt>Setup</dt><dd>{{ 'Complete' if status.setup_complete else 'Not finished' }}</dd></div>
+        <div><dt>Imported from v1</dt><dd>{{ 'Yes' if status.migrated_from_v1 else 'No' }}</dd></div>
+        <div><dt>Log buffer</dt>
+          <dd>In memory, cleared on restart — <a href="/logs">view the logs</a></dd></div>
+      </dl>
+
+      <dl class="keygrid">
+        <div><dt>Rules</dt><dd class="mono">{{ status.stats.rules_enabled }} enabled of {{ status.stats.rules_total }}</dd></div>
+        <div><dt>Users</dt><dd class="mono">{{ status.users.linked }} linked of {{ status.users.total }}</dd></div>
+        <div><dt>Last run</dt>
+          <dd>{% if status.last_run %}{{ status.last_run.relative }} · {{ status.last_run.status }} · {{ status.last_run.duration }}
+              {% else %}Never{% endif %}</dd></div>
+        <div><dt>Next run</dt>
+          <dd>{{ sched.next_run_at | when if sched.next_run_at else 'Not scheduled' }}</dd></div>
+      </dl>
+
+      <label class="check">
+        <input type="checkbox" id="log_to_file" {{ 'checked' if settings.log_to_file }}>
+        <span class="check__text">Also write a rotating log file to
+          <span class="mono">/config/logs</span>
+          <span class="check__hint">The in-memory buffer is emptied by a restart; the file is not.</span></span>
+      </label>
+
+      <p class="muted small mb-0">
+        Plex removed plugin support in 2018, so {{ app_name }} runs as its own
+        container beside Plex and talks to its HTTP API from outside. Watch
+        state is per Plex account, which is why every user needs their own token.
+      </p>
+    </div>
+  </div>
+</section>
+
+{# One Save for every panel: the settings endpoint takes them all in one body,
+   and a per-tab save would let two tabs disagree about what is stored. #}
+<div class="savebar">
+  <div class="savebar__text">
+    Saving rewrites the schedule immediately — no restart. Safe mode and the
+    password are not part of this; they save on their own buttons.
+  </div>
+  <button type="button" class="btn btn--primary" id="save-settings" onclick="saveSettings(this)">
+    {{ icons.icon('check', 15) }} Save settings
+  </button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function val(id) { return document.getElementById(id).value; }
+function checked(id) { return document.getElementById(id).checked; }
+
+/* ------------------------------------------------------------------- panels */
+
+document.querySelectorAll("[data-settab]").forEach(function (tab) {
+  tab.addEventListener("click", function () {
+    var wanted = tab.dataset.settab;
+    document.querySelectorAll("[data-settab]").forEach(function (other) {
+      var on = other.dataset.settab === wanted;
+      other.classList.toggle("is-active", on);
+      other.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.querySelectorAll(".setpanel").forEach(function (panel) {
+      panel.hidden = panel.id !== "setpanel-" + wanted;
+    });
+    try { localStorage.setItem("unwatcharr.settings.tab", wanted); } catch (err) { /* private mode */ }
+  });
+});
+
+(function restoreTab() {
+  var saved = null;
+  try { saved = localStorage.getItem("unwatcharr.settings.tab"); } catch (err) { return; }
+  var tab = saved && document.querySelector('[data-settab="' + saved + '"]');
+  if (tab) { tab.click(); }
+})();
+
+/* A cron expression and an hour count are alternatives, so only the one the
+   schedule actually uses is on screen. */
+function paintSchedule() {
+  var kind = val("schedule_kind");
+  document.getElementById("field-hours").hidden = kind !== "interval";
+  document.getElementById("field-cron").hidden = kind !== "cron";
+}
+paintSchedule();
+
+/* Masked by default, revealable deliberately. A webhook URL is a credential. */
+function toggleSecret(button) {
+  var input = document.getElementById(button.dataset.secretFor);
+  var shown = input.type === "text";
+  input.type = shown ? "password" : "text";
+  button.textContent = shown ? "Show" : "Hide";
+  button.setAttribute("aria-pressed", shown ? "false" : "true");
+}
+
+/* -------------------------------------------------------------------- saves */
+
+async function saveSettings(source) {
+  var body = {
+    schedule_enabled: checked("schedule_enabled"),
+    schedule_kind: val("schedule_kind"),
+    schedule_hours: val("schedule_hours"),
+    schedule_cron: val("schedule_cron"),
+    catch_up_missed_runs: checked("catch_up_missed_runs"),
+    request_delay_ms: val("request_delay_ms"),
+    server_side_filters: checked("server_side_filters"),
+    plex_verify_ssl: checked("plex_verify_ssl"),
+    history_keep_days: val("history_keep_days"),
+    dry_run_keep_days: val("dry_run_keep_days"),
+    notify_enabled: checked("notify_enabled"),
+    notify_kind: val("notify_kind"),
+    notify_url: val("notify_url"),
+    notify_on_dry_run: checked("notify_on_dry_run"),
+    notify_on_error_only: checked("notify_on_error_only"),
+    log_to_file: checked("log_to_file"),
+    secure_cookies: checked("secure_cookies")
+  };
+  try {
+    busy(source, true);
+    var result = await api("/api/settings", { method: "POST", body: body });
+    toast("Settings saved." + (result.next_run_at ? " Next run " + result.next_run_at + "." : ""), "ok");
+    busy(source, false);
+  } catch (err) {
+    busy(source, false);
+    toast(errorText(err), "err");
+  }
+}
+
+/* Safe mode never rides on Save, and never on the browser's own confirm(): the consequence
+   has to be readable before the press. */
+async function setSafeMode(enabled, source) {
+  if (!enabled) {
+    var ok = await confirmDialog({
+      title: "Turn safe mode OFF?",
+      body: [
+        "Runs will then really mark items unwatched in Plex, on the schedule as well as on demand.",
+        "Undo can put an item back, but Plex records a fresh play — the original watch date and play count do not come back."
+      ],
+      detail: "Preview a rule first if you have not already. A preview writes nothing.",
+      confirmLabel: "Turn safe mode off",
+      tone: "danger"
+    });
+    if (!ok) { return; }
+  }
+  try {
+    busy(source, true);
+    await api("/api/settings/safe-mode", {
+      method: "POST", body: { enabled: enabled, confirm: true }
+    });
+    toast("Safe mode " + (enabled ? "ON" : "OFF") + ".", enabled ? "ok" : "warn");
+    setTimeout(function () { window.location.reload(); }, 600);
+  } catch (err) {
+    busy(source, false);
+    toast(errorText(err), "err");
+  }
+}
+
+async function testNotify(source) {
+  try {
+    busy(source, true);
+    var result = await api("/api/settings/notify-test", {
+      method: "POST", body: { notify_kind: val("notify_kind"), notify_url: val("notify_url") }
+    });
+    toast(result.message, "ok");
+    busy(source, false);
+  } catch (err) {
+    busy(source, false);
+    toast(errorText(err), "err");
+  }
+}
+
+async function savePassword(source) {
+  var password = val("password");
+  var removing = !password.trim();
+  if (removing) {
+    var ok = await confirmDialog({
+      title: "Remove the web UI password?",
+      body: ["Anyone who can reach this port will be able to change your Plex watch history."],
+      confirmLabel: "Remove the password",
+      tone: "danger"
+    });
+    if (!ok) { return; }
+  }
+  try {
+    busy(source, true);
+    var result = await api("/api/settings/password", { method: "POST", body: { password: password } });
+    toast(result.message, result.password_set ? "ok" : "warn");
+    setTimeout(function () { window.location.reload(); }, 800);
+  } catch (err) {
+    busy(source, false);
+    toast(errorText(err), "err");
+  }
+}
+</script>
+{% endblock %}

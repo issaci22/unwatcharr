@@ -1,0 +1,579 @@
+{% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% import "_empty.html" as blank %}
+{% block title %}History — {{ app_name }}{% endblock %}
+
+{#- Two ledgers, not one list. "Did it run, and what did it decide" and "what
+    was actually done to a person's watch state" are different questions with
+    different rows, so they get their own sub-view.
+
+    Both are server-rendered. The action table repaints through a <template>
+    clone with data-slot lookups — the only innerHTML write on the page is
+    `= ""`, so no user-controlled text is ever concatenated into markup. -#}
+
+{% set reasons = schema.skip_reasons %}
+
+{% block content %}
+<div class="pagehead">
+  <div class="pagehead__text">
+    <h1 class="pagehead__title">History</h1>
+    <p class="pagehead__sub">
+      Every run that happened and every change that was made. A dry run appears
+      here too — it decided things, it just never touched Plex.
+    </p>
+  </div>
+</div>
+
+{# The two sub-views. Both panels are in the document; the switch only unhides
+   one, so there is no second render path and no request per tab. #}
+<div class="subnav" role="tablist" aria-label="History view">
+  <button type="button" class="subnav__tab is-active" role="tab" id="tab-runs"
+          aria-selected="true" aria-controls="view-runs" data-view="runs">
+    {{ icons.icon('play', 14) }} Run history
+    <span class="subnav__count">{{ run_total }}</span>
+  </button>
+  <button type="button" class="subnav__tab" role="tab" id="tab-actions"
+          aria-selected="false" aria-controls="view-actions" data-view="actions">
+    {{ icons.icon('undo', 14) }} Action history
+    <span class="subnav__count">{{ total }}</span>
+  </button>
+</div>
+
+{# ====================================================================== runs #}
+<section id="view-runs" role="tabpanel" aria-labelledby="tab-runs">
+  <div class="panel panel--flush">
+    <div class="panel__head">
+      <h2 class="panel__title">Runs</h2>
+      <span class="panel__hint">
+        {% if runs %}Newest {{ runs | length }} of {{ run_total }} · select a row for the pass-by-pass breakdown
+        {% else %}Nothing has run yet{% endif %}
+      </span>
+    </div>
+
+    {% if runs %}
+    <div class="tablewrap">
+      <table class="table ledger">
+        <thead>
+          <tr>
+            <th class="ledger__gutter"><span class="sr-only">Expand</span></th>
+            <th>Result</th>
+            <th>Trigger</th>
+            <th>Started</th>
+            <th class="num">Scanned</th>
+            <th class="num">Matched</th>
+            <th class="num">Changed</th>
+            <th class="num">Duration</th>
+            <th class="actions"><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for run in runs %}
+          {% if run.status == 'error' %}
+            {% set outcome, tone, word, mark = 'failed', 'danger', 'Failed', 'alert' %}
+          {% elif run.status == 'cancelled' %}
+            {% set outcome, tone, word, mark = 'cancelled', 'warn', 'Stopped', 'close' %}
+          {% elif run.status == 'running' %}
+            {% set outcome, tone, word, mark = 'running', 'info', 'Running', 'clock' %}
+          {% elif (run.failed or 0) > 0 %}
+            {% set outcome, tone, word, mark = 'warning', 'warn', 'Warning', 'alert' %}
+          {% else %}
+            {% set outcome, tone, word, mark = 'success', 'ok', 'Success', 'check' %}
+          {% endif %}
+          <tr class="ledger__row ledger__row--{{ outcome }}" data-run="{{ run.id }}"
+              tabindex="0" role="button" aria-expanded="false"
+              aria-controls="run-detail-{{ run.id }}"
+              onclick="toggleRun(this)" onkeydown="rowKey(event, this)">
+            <td class="ledger__gutter">
+              <span class="ledger__chevron" aria-hidden="true">{{ icons.icon('chevron', 14) }}</span>
+            </td>
+            <td>
+              <span class="badge-new badge-new--{{ tone }}">{{ icons.icon(mark, 12) }} {{ word }}</span>
+              <span class="sub">{% if run.mode == 'dry' %}Dry run{% else %}Apply mode{% endif %}</span>
+            </td>
+            <td class="nowrap">
+              {{ run.trigger }}
+              <span class="sub mono">{{ run.uid }}</span>
+            </td>
+            <td class="nowrap">
+              {{ run.started_at | when }}
+              <span class="sub">{{ run.relative }}</span>
+            </td>
+            <td class="num mono">{{ run.scanned }}</td>
+            <td class="num mono">{{ run.matched }}</td>
+            <td class="num mono">
+              {% if run.mode == 'dry' %}
+                <span class="faint" title="A dry run never changes anything in Plex.">—</span>
+              {% else %}
+                <span class="{{ 'text-ok strong' if (run.applied or 0) > 0 }}">{{ run.applied or 0 }}</span>
+              {% endif %}
+              {% if (run.failed or 0) > 0 %}
+                <span class="sub text-danger">{{ run.failed }} failed</span>
+              {% endif %}
+            </td>
+            <td class="num mono nowrap">{{ run.duration }}</td>
+            <td class="actions" onclick="event.stopPropagation()">
+              {% if run.changed_anything %}
+              <button type="button" class="btn btn--sm btn--danger"
+                      data-run-id="{{ run.id }}" data-run-applied="{{ run.applied }}"
+                      onclick="undoRun(this)">
+                {{ icons.icon('undo', 13) }} Undo run
+              </button>
+              {% else %}
+              <span class="faint tiny">Nothing to undo</span>
+              {% endif %}
+            </td>
+          </tr>
+
+          {# The disclosure. Totals provoke a question the passes answer: what
+             was left alone, and which gate protected it. #}
+          <tr class="ledger__detail" id="run-detail-{{ run.id }}" hidden>
+            <td colspan="9">
+              <div class="rundetail">
+                {% if run.error %}
+                <div class="callout callout--err">
+                  <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
+                  <div class="callout__body">
+                    <strong>This run stopped early.</strong>
+                    <p class="mb-0 small">{{ run.error }}</p>
+                  </div>
+                </div>
+                {% endif %}
+
+                <div class="rundetail__meta">
+                  <span><span class="caps">Run</span> <span class="mono">{{ run.uid }}</span></span>
+                  <span><span class="caps">Mode</span> {{ 'dry run' if run.mode == 'dry' else 'apply' }}</span>
+                  <span><span class="caps">Rules</span> {{ run.rules_processed or 0 }}</span>
+                  <span><span class="caps">Users</span> {{ run.users_processed or 0 }}</span>
+                  <span><span class="caps">Finished</span> {{ run.finished_at | when }}</span>
+                  <span><span class="caps">Exact duration</span> <span class="mono">{{ run.duration }}</span></span>
+                </div>
+
+                {% set entries = passes.get(run.id, []) %}
+                {% if entries %}
+                <div class="passgrid">
+                  {% for p in entries %}
+                  <article class="passcard {{ 'passcard--bad' if p.status == 'error' }}">
+                    <header class="passcard__head">
+                      <span class="passcard__rule">{{ p.rule_name }}</span>
+                      <span class="passcard__user">as {{ p.user_title }}</span>
+                      {% if p.status == 'error' %}
+                      <span class="badge-new badge-new--danger">{{ icons.icon('alert', 12) }} Failed</span>
+                      {% elif p.status == 'cancelled' %}
+                      <span class="badge-new badge-new--warn">{{ icons.icon('close', 12) }} Stopped</span>
+                      {% endif %}
+                    </header>
+                    <dl class="passcard__nums">
+                      <div><dt>Scanned</dt><dd class="mono">{{ p.scanned or 0 }}</dd></div>
+                      <div><dt>Matched</dt><dd class="mono">{{ p.matched or 0 }}</dd></div>
+                      <div><dt>Changed</dt><dd class="mono">{{ p.applied or 0 }}</dd></div>
+                      <div><dt>Skipped</dt><dd class="mono">{{ p.skipped or 0 }}</dd></div>
+                      <div><dt>Failed</dt><dd class="mono {{ 'text-danger' if (p.failed or 0) > 0 }}">{{ p.failed or 0 }}</dd></div>
+                      <div><dt>Took</dt><dd class="mono">{{ p.duration }}</dd></div>
+                    </dl>
+                    {% if p.error %}
+                    <p class="passcard__error small text-danger mb-0">{{ p.error }}</p>
+                    {% endif %}
+                    <div class="skipline">
+                      <span class="caps">Left alone, because</span>
+                      {% if p.skip_summary %}
+                      <ul class="skiplist">
+                        {% for entry in p.skip_summary %}
+                        <li class="skiptag">
+                          <span class="skiptag__reason">{{ reasons.get(entry.reason, entry.reason) }}</span>
+                          <span class="skiptag__count mono">{{ entry.count }}</span>
+                        </li>
+                        {% endfor %}
+                      </ul>
+                      {% else %}
+                      <span class="faint small">Nothing was skipped in this pass.</span>
+                      {% endif %}
+                    </div>
+                  </article>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <p class="muted small mb-0">
+                  This run recorded no passes — it stopped before any rule was
+                  matched against a user.
+                </p>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="panel__body">
+      {% call blank.state('history', 'No runs yet',
+          'A run appears here the moment one finishes, scheduled or manual, with
+           its pass-by-pass breakdown and every reason it skipped something.',
+          ['Check <strong>Rules</strong> — a run with no enabled rule scans nothing.' | safe,
+           'Check <strong>Users</strong> — an account with no token is skipped, so a run can finish having done nothing.' | safe,
+           'Press <strong>Run now</strong> on the dashboard. With safe mode on it is calculated in full and then forced to a dry run.' | safe,
+           'Set a schedule under <strong>Settings → Scheduling</strong> if you would rather it ran on its own.' | safe]) %}
+        <a class="btn btn--primary" href="/">{{ icons.icon('play', 15) }} Go to the dashboard</a>
+      {% endcall %}
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+{# =================================================================== actions #}
+<section id="view-actions" role="tabpanel" aria-labelledby="tab-actions" hidden>
+  <div class="callout callout--info">
+    <span class="callout__icon">{{ icons.icon('info', 16) }}</span>
+    <div class="callout__body">
+      <strong>Undo is honest about its limits.</strong>
+      <p class="mb-0 small">{{ caveat }}</p>
+    </div>
+  </div>
+
+  <div class="panel panel--flush">
+    <div class="panel__head">
+      <h2 class="panel__title">Changes</h2>
+      <span class="panel__hint" id="action-count">{{ actions | length }} shown of {{ total }}</span>
+    </div>
+
+    <div class="panel__body panel__body--tight">
+      <div class="filterbar">
+        <div class="field">
+          <label class="field__label" for="ah-search">Search</label>
+          <input class="input input--sm" id="ah-search" type="search"
+                 placeholder="title, series…" oninput="reloadActions()">
+        </div>
+        <div class="field">
+          <label class="field__label" for="ah-status">Status</label>
+          <select class="select input--sm" id="ah-status" onchange="reloadActions()">
+            <option value="">Any</option>
+            <option value="applied">Applied</option>
+            <option value="undone">Undone</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field__label" for="ah-user">Plex user</label>
+          <select class="select input--sm" id="ah-user" onchange="reloadActions()">
+            <option value="">Everyone</option>
+            {% for user in users %}
+            <option value="{{ user.id }}">{{ user.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label class="field__label" for="ah-rule">Rule</label>
+          <select class="select input--sm" id="ah-rule" onchange="reloadActions()">
+            <option value="">Any rule</option>
+            {% for rule in rules %}
+            <option value="{{ rule.id }}">{{ rule.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="tablewrap">
+      <table class="table ledger ledger--actions table--cards">
+        <thead>
+          <tr>
+            <th>Media</th>
+            <th>Plex user</th>
+            <th>Rule</th>
+            <th>Changed</th>
+            <th>Status</th>
+            <th>Reversible</th>
+            <th class="actions"><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody id="action-rows">
+        {% for action in actions %}
+          <tr data-action-id="{{ action.id }}"
+              data-action-title="{{ action.display_title }}"
+              data-action-user="{{ action.user_title }}">
+            <td data-label="Media">
+              <span class="primary-cell">{{ action.display_title }}</span>
+              <span class="sub">
+                {{ action.item_type }}{% if action.last_viewed_relative %} · watched {{ action.last_viewed_relative }}{% endif %}
+                {%- if action.view_count_before %} · {{ action.view_count_before }} play{{ '' if action.view_count_before == 1 else 's' }}{% endif %}
+              </span>
+            </td>
+            <td data-label="Plex user" class="nowrap">{{ action.user_title }}</td>
+            <td data-label="Rule" class="muted">{{ action.rule_name }}</td>
+            <td data-label="Changed" class="nowrap">
+              {{ action.applied_at | when }}
+              {% if action.undone_at %}<span class="sub">undone {{ action.undone_at | when }}</span>{% endif %}
+            </td>
+            <td data-label="Status">
+              {% if action.status == 'applied' %}
+              <span class="badge-new badge-new--ok">{{ icons.icon('check', 12) }} Applied</span>
+              {% elif action.status == 'undone' %}
+              <span class="badge-new badge-new--info">{{ icons.icon('undo', 12) }} Undone</span>
+              {% elif action.status == 'failed' %}
+              <span class="badge-new badge-new--danger">{{ icons.icon('alert', 12) }} Failed</span>
+              {% else %}
+              <span class="badge-new">{{ action.status }}</span>
+              {% endif %}
+              {% if action.error %}<span class="sub text-danger">{{ action.error }}</span>{% endif %}
+            </td>
+            <td data-label="Reversible">
+              {% if action.undoable %}
+              <span class="revflag revflag--yes">{{ icons.icon('undo', 12) }} Can be undone</span>
+              {% elif action.status == 'undone' %}
+              <span class="revflag revflag--no">Already undone</span>
+              {% else %}
+              <span class="revflag revflag--no">Never applied</span>
+              {% endif %}
+            </td>
+            <td class="actions">
+              {% if action.undoable %}
+              <button type="button" class="btn btn--sm" onclick="undoAction(this)">
+                {{ icons.icon('undo', 13) }} Undo
+              </button>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel__body" id="action-empty" {% if actions %}hidden{% endif %}>
+      {# Two distinct empties: nothing has ever been changed, and this filter
+         matched nothing. They need different words and different next steps, so
+         they are two elements rather than one whose text gets rewritten. #}
+      <div id="action-empty-none">
+        {{ blank.state('empty-box', 'No changes recorded yet',
+           'Only changes that really happened are listed here — a dry run
+            candidate was calculated, not applied, so it never appears.',
+           ['While <strong>safe mode</strong> is on this list stays empty by design: every run is forced to a dry run.' | safe,
+            'Open <strong>Rules → Preview</strong> to see what a run would change. It reads Plex and writes nothing.' | safe,
+            'When the numbers look right, turn safe mode off under <strong>Settings → Safety</strong> and run again.' | safe]) }}
+      </div>
+      <div id="action-empty-filtered" hidden>
+        {{ blank.filtered('Nothing matches those filters',
+           'Widen the search, or clear the status, user and rule filters. The
+            underlying history is unchanged — only this view narrowed past it.') }}
+      </div>
+    </div>
+
+    <div class="panel__foot">
+      Dry runs never appear here — a candidate that was only calculated is not a
+      change. Retention prunes rows older than the history window on the next
+      scheduled run.
+    </div>
+  </div>
+</section>
+
+{# One row, cloned and filled through data-slot lookups. No HTML in a string. #}
+<template id="action-row-tpl">
+  <tr>
+    <td data-label="Media">
+      <span class="primary-cell" data-slot="title"></span>
+      <span class="sub" data-slot="sub"></span>
+    </td>
+    <td data-label="Plex user" class="nowrap" data-slot="user"></td>
+    <td data-label="Rule" class="muted" data-slot="rule"></td>
+    <td data-label="Changed" class="nowrap">
+      <span data-slot="when"></span>
+      <span class="sub" data-slot="undone" hidden></span>
+    </td>
+    <td data-label="Status">
+      <span class="badge-new" data-slot="status"></span>
+      <span class="sub text-danger" data-slot="error" hidden></span>
+    </td>
+    <td data-label="Reversible"><span class="revflag" data-slot="reversible"></span></td>
+    <td class="actions"><button type="button" class="btn btn--sm" data-slot="undo" hidden>Undo</button></td>
+  </tr>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var CAVEAT = {{ caveat | tojson }};
+
+/* The trade-off, stated before the press. Undo re-scrobbles: Plex records a
+   fresh play, and the original timestamp and count do not come back. */
+var UNDO_TRADEOFF =
+  "Undo will re-scrobble this item for this specific Plex user. " +
+  "Plex may not restore the original watch timestamp or play count.";
+
+/* ---------------------------------------------------------------- sub-views */
+
+document.querySelectorAll("[data-view]").forEach(function (tab) {
+  tab.addEventListener("click", function () {
+    var wanted = tab.dataset.view;
+    document.querySelectorAll("[data-view]").forEach(function (other) {
+      var on = other.dataset.view === wanted;
+      other.classList.toggle("is-active", on);
+      other.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.getElementById("view-runs").hidden = wanted !== "runs";
+    document.getElementById("view-actions").hidden = wanted !== "actions";
+  });
+});
+
+/* ---------------------------------------------------------------- run rows */
+
+function toggleRun(row) {
+  var detail = document.getElementById("run-detail-" + row.dataset.run);
+  if (!detail) { return; }
+  var open = detail.hidden;
+  detail.hidden = !open;
+  row.setAttribute("aria-expanded", open ? "true" : "false");
+  row.classList.toggle("is-open", open);
+}
+
+function rowKey(event, row) {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    toggleRun(row);
+  }
+}
+
+/* -------------------------------------------------------------------- undo */
+
+async function undoRun(button) {
+  var count = button.dataset.runApplied;
+  var ok = await confirmDialog({
+    title: "Mark every item in this run watched again?",
+    body: [
+      UNDO_TRADEOFF,
+      count + " item(s) would be re-scrobbled, each for the Plex user the " +
+      "change was originally made as."
+    ],
+    detail: CAVEAT,
+    confirmLabel: "Undo the whole run",
+    tone: "danger"
+  });
+  if (!ok) { return; }
+  try {
+    busy(button, true);
+    var result = await api("/api/runs/" + button.dataset.runId + "/undo", { method: "POST" });
+    toast("Undone " + result.undone + ", failed " + result.failed + ".",
+          result.failed ? "warn" : "ok");
+    setTimeout(function () { window.location.reload(); }, 700);
+  } catch (err) {
+    busy(button, false);
+    toast(errorText(err), "err");
+  }
+}
+
+async function undoAction(button) {
+  var row = button.closest("[data-action-id]");
+  if (!row) { return; }
+  var ok = await confirmDialog({
+    title: "Mark this watched again?",
+    body: [
+      UNDO_TRADEOFF,
+      "Item: " + row.dataset.actionTitle,
+      "Plex user: " + (row.dataset.actionUser || "unknown")
+    ],
+    detail: CAVEAT,
+    confirmLabel: "Undo this change",
+    tone: "danger"
+  });
+  if (!ok) { return; }
+  try {
+    busy(button, true);
+    await api("/api/actions/" + row.dataset.actionId + "/undo", { method: "POST" });
+    toast("Marked watched again in Plex.", "ok");
+    await reloadActions();
+  } catch (err) {
+    busy(button, false);
+    toast(errorText(err), "err");
+  }
+}
+
+/* ----------------------------------------------------------- action filter */
+
+function slot(root, name) { return root.querySelector('[data-slot="' + name + '"]'); }
+
+function describe(action) {
+  var bits = [action.item_type];
+  if (action.last_viewed_relative) { bits.push("watched " + action.last_viewed_relative); }
+  if (action.view_count_before) {
+    bits.push(action.view_count_before + " play" + (action.view_count_before === 1 ? "" : "s"));
+  }
+  return bits.join(" · ");
+}
+
+var STATUS_TONE = { applied: "ok", undone: "info", failed: "danger" };
+var STATUS_WORD = { applied: "Applied", undone: "Undone", failed: "Failed" };
+
+function buildRow(action) {
+  var node = document.getElementById("action-row-tpl").content.firstElementChild.cloneNode(true);
+  node.dataset.actionId = action.id;
+  node.dataset.actionTitle = action.display_title;
+  node.dataset.actionUser = action.user_title || "";
+
+  slot(node, "title").textContent = action.display_title;
+  slot(node, "sub").textContent = describe(action);
+  slot(node, "user").textContent = action.user_title || "—";
+  slot(node, "rule").textContent = action.rule_name || "—";
+  slot(node, "when").textContent = action.applied_at || "—";
+
+  var undone = slot(node, "undone");
+  if (action.undone_at) {
+    undone.textContent = "undone " + action.undone_at;
+    undone.hidden = false;
+  }
+
+  var status = slot(node, "status");
+  status.textContent = STATUS_WORD[action.status] || action.status;
+  status.className = "badge-new badge-new--" + (STATUS_TONE[action.status] || "");
+
+  var error = slot(node, "error");
+  if (action.error) { error.textContent = action.error; error.hidden = false; }
+
+  var flag = slot(node, "reversible");
+  if (action.undoable) {
+    flag.textContent = "Can be undone";
+    flag.className = "revflag revflag--yes";
+  } else {
+    flag.textContent = action.status === "undone" ? "Already undone" : "Never applied";
+    flag.className = "revflag revflag--no";
+  }
+
+  var undo = slot(node, "undo");
+  if (action.undoable) {
+    undo.hidden = false;
+    undo.addEventListener("click", function () { undoAction(undo); });
+  }
+  return node;
+}
+
+async function reloadActions() {
+  var query = new URLSearchParams({ limit: "{{ action_limit }}" });
+  var search = document.getElementById("ah-search").value.trim();
+  var status = document.getElementById("ah-status").value;
+  var user = document.getElementById("ah-user").value;
+  var rule = document.getElementById("ah-rule").value;
+  if (search) { query.set("search", search); }
+  if (status) { query.set("status", status); }
+  if (user) { query.set("user_id", user); }
+  if (rule) { query.set("rule_id", rule); }
+
+  var body = document.getElementById("action-rows");
+  var empty = document.getElementById("action-empty");
+  try {
+    var data = await api("/api/history?" + query.toString());
+    body.innerHTML = "";
+    data.actions.forEach(function (action) { body.appendChild(buildRow(action)); });
+    document.getElementById("action-count").textContent =
+      data.actions.length + " shown of " + data.total;
+    empty.hidden = data.actions.length > 0;
+    if (!data.actions.length) {
+      // "Nothing ever happened" and "this filter is too narrow" are different
+      // problems with different next steps, so the right one is unhidden
+      // rather than one being rewritten into the other.
+      var filtered = Boolean(search || status || user || rule);
+      document.getElementById("action-empty-none").hidden = filtered;
+      document.getElementById("action-empty-filtered").hidden = !filtered;
+    }
+  } catch (err) {
+    toast(errorText(err), "err");
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% import "_empty.html" as blank %}
+{% block title %}Logs — {{ app_name }}{% endblock %}
+
+{#- A log viewer, not a text dump. Dense monospace rows, one grid so the
+    columns line up, severity carried as icon + word + colour so it survives a
+    greyscale screenshot and a colour-blind reader.
+
+    The buffer is in memory and holds the last {{ log_capacity }} records. It is
+    not the file log: what is here is what the process has said since it
+    started. Every repaint clones a <template> row and writes textContent, so a
+    log line containing markup is never parsed as markup. -#}
+
+{% block content %}
+<div class="pagehead">
+  <div class="pagehead__text">
+    <h1 class="pagehead__title">Logs</h1>
+    <p class="pagehead__sub">
+      The last {{ log_capacity }} lines this process has written, newest first.
+      Tokens are redacted before a record ever reaches this buffer.
+    </p>
+  </div>
+  <div class="pagehead__actions">
+    <label class="check check--inline" for="log-follow">
+      <input type="checkbox" id="log-follow" checked>
+      <span class="check__text">Auto-refresh</span>
+    </label>
+    <button type="button" class="btn" id="log-refresh" onclick="reloadLogs(this)">
+      {{ icons.icon('clock', 15) }} Refresh
+    </button>
+  </div>
+</div>
+
+<div class="panel panel--flush">
+  <div class="panel__body panel__body--tight">
+    <div class="logbar">
+      <div class="logbar__levels" role="group" aria-label="Minimum severity">
+        {% for level in levels %}
+        <button type="button" class="levelpill levelpill--{{ level }} {{ 'is-active' if level == 'INFO' }}"
+                data-level="{{ level }}" aria-pressed="{{ 'true' if level == 'INFO' else 'false' }}">
+          {{ level | capitalize }}{% if level != 'DEBUG' %} and worse{% endif %}
+        </button>
+        {% endfor %}
+      </div>
+      <div class="field logbar__search">
+        <label class="sr-only" for="log-search">Filter log text</label>
+        <input class="input input--sm" id="log-search" type="search"
+               placeholder="Filter by text — logger name, message, run id…"
+               oninput="reloadLogs()">
+      </div>
+      <div class="field">
+        <label class="sr-only" for="log-limit">Lines</label>
+        <select class="select input--sm" id="log-limit" onchange="reloadLogs()">
+          <option value="200">200 lines</option>
+          <option value="400" selected>400 lines</option>
+          <option value="1000">1000 lines</option>
+          <option value="{{ log_capacity }}">All {{ log_capacity }}</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="logstats" id="log-stats" aria-live="polite">
+      <span class="logstat"><span class="logstat__n mono" id="log-count">{{ logs | length }}</span> shown</span>
+      <span class="logstat logstat--warn">
+        {{ icons.icon('alert', 12) }}
+        <span class="logstat__n mono" id="log-warn">{{ logs | selectattr('level', 'equalto', 'WARNING') | list | length }}</span> warnings
+      </span>
+      <span class="logstat logstat--danger">
+        {{ icons.icon('alert', 12) }}
+        <span class="logstat__n mono" id="log-err">{{ logs | selectattr('level', 'equalto', 'ERROR') | list | length }}</span> errors
+      </span>
+      <span class="logstat faint" id="log-updated">loaded with the page</span>
+    </div>
+  </div>
+
+  <div class="logwell logwell--page" id="log-well" tabindex="0" role="log" aria-label="Application log">
+    <div id="log-body">
+      {% for entry in logs %}
+      <div class="logline logline--{{ entry.level }}">
+        <span class="logline__time mono">{{ entry.timestamp }}</span>
+        <span class="logline__level">{{ entry.level }}</span>
+        <span class="logline__logger mono">{{ entry.logger }}</span>
+        <span class="logline__msg">{{ entry.message }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="logempty" id="log-empty" {% if logs %}hidden{% endif %}>
+      {{ blank.filtered('Nothing in the buffer matches',
+         'Lower the severity to Debug, or clear the text filter. The buffer only
+          holds what this process has logged since it started — restarting the
+          container empties it.') }}
+    </div>
+  </div>
+
+  <div class="panel__foot">
+    In-memory ring buffer — restarting the container empties it. Turn on
+    <strong>Also write a rotating log file</strong> in
+    <a href="/settings">Settings → System</a> to keep logs across restarts.
+  </div>
+</div>
+
+<template id="logline-tpl">
+  <div class="logline">
+    <span class="logline__time mono" data-slot="time"></span>
+    <span class="logline__level" data-slot="level"></span>
+    <span class="logline__logger mono" data-slot="logger"></span>
+    <span class="logline__msg" data-slot="msg"></span>
+  </div>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var logLevel = "INFO";
+var logTimer = null;
+
+document.querySelectorAll("[data-level]").forEach(function (pill) {
+  pill.addEventListener("click", function () {
+    logLevel = pill.dataset.level;
+    document.querySelectorAll("[data-level]").forEach(function (other) {
+      var on = other.dataset.level === logLevel;
+      other.classList.toggle("is-active", on);
+      other.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    reloadLogs();
+  });
+});
+
+function paintLine(entry) {
+  var node = document.getElementById("logline-tpl").content.firstElementChild.cloneNode(true);
+  node.className = "logline logline--" + entry.level;
+  node.querySelector('[data-slot="time"]').textContent = entry.timestamp;
+  node.querySelector('[data-slot="level"]').textContent = entry.level;
+  node.querySelector('[data-slot="logger"]').textContent = entry.logger;
+  node.querySelector('[data-slot="msg"]').textContent = entry.message;
+  return node;
+}
+
+async function reloadLogs(source) {
+  var query = new URLSearchParams({
+    limit: document.getElementById("log-limit").value,
+    level: logLevel,
+    search: document.getElementById("log-search").value.trim()
+  });
+  try {
+    busy(source, true);
+    var data = await api("/api/logs?" + query.toString());
+    var body = document.getElementById("log-body");
+    body.innerHTML = "";
+    var warnings = 0;
+    var errors = 0;
+    data.logs.forEach(function (entry) {
+      if (entry.level === "WARNING") { warnings += 1; }
+      if (entry.level === "ERROR" || entry.level === "CRITICAL") { errors += 1; }
+      body.appendChild(paintLine(entry));
+    });
+    document.getElementById("log-count").textContent = data.logs.length;
+    document.getElementById("log-warn").textContent = warnings;
+    document.getElementById("log-err").textContent = errors;
+    document.getElementById("log-empty").hidden = data.logs.length > 0;
+    document.getElementById("log-updated").textContent =
+      "updated " + new Date().toLocaleTimeString();
+    busy(source, false);
+  } catch (err) {
+    busy(source, false);
+    toast(errorText(err), "err");
+  }
+}
+
+/* Auto-refresh is opt-out, and stops while the tab is hidden so a background
+   tab is not polling a NAS every ten seconds forever. */
+function scheduleLogs() {
+  if (logTimer) { clearInterval(logTimer); logTimer = null; }
+  if (document.getElementById("log-follow").checked) {
+    logTimer = setInterval(function () {
+      if (!document.hidden) { reloadLogs(); }
+    }, 10000);
+  }
+}
+
+document.getElementById("log-follow").addEventListener("change", scheduleLogs);
+scheduleLogs();
+</script>
+{% endblock %}

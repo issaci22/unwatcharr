@@ -1,0 +1,261 @@
+/* ===========================================================================
+   Unwatcharr — design tokens
+   ---------------------------------------------------------------------------
+   The ONLY file that names a raw colour. Everything else in the UI reads a
+   semantic token from here, so a retheme never touches a component rule.
+
+   Layers, in order:
+     1. non-colour tokens (type, space, radius, motion, layout) — theme agnostic
+     2. dark palette on :root                 — the default; homelab default
+     3. light palette on [data-theme="light"] — designed, not inverted
+
+   Colour semantics used across the app (never colour alone — always paired with
+   an icon and a word):
+     brand   identity, primary action, current nav item
+     ok      healthy · applied · finished
+     warn    SAFE MODE · pending · needs attention
+     danger  error · destructive · "Plex will really change"
+     info    neutral information · dry run · selected
+   =========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* --- type ------------------------------------------------------------- */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+               Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+               "Liberation Mono", monospace;
+
+  --fs-2xs: 0.6875rem;  /* 11px — table micro-labels, badge text            */
+  --fs-xs:  0.75rem;    /* 12px — meta, captions                            */
+  --fs-sm:  0.8125rem;  /* 13px — dense table body, secondary               */
+  --fs-md:  0.875rem;   /* 14px — default UI text                           */
+  --fs-base:0.9375rem;  /* 15px — prose                                     */
+  --fs-lg:  1.0625rem;  /* 17px — card titles                               */
+  --fs-xl:  1.25rem;    /* 20px — page titles                               */
+  --fs-2xl: 1.75rem;    /* 28px — statistic values                          */
+  --fs-3xl: 2.25rem;    /* 36px — the one number that matters on a screen   */
+
+  --lh-tight: 1.2;
+  --lh-snug:  1.35;
+  --lh-base:  1.55;
+
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --tracking-caps: 0.06em;   /* section eyebrows, table headers */
+
+  /* --- space (4px rhythm) ------------------------------------------------ */
+  --sp-0: 0;
+  --sp-1: 0.125rem;   /* 2  */
+  --sp-2: 0.25rem;    /* 4  */
+  --sp-3: 0.375rem;   /* 6  */
+  --sp-4: 0.5rem;     /* 8  */
+  --sp-5: 0.75rem;    /* 12 */
+  --sp-6: 1rem;       /* 16 */
+  --sp-7: 1.25rem;    /* 20 */
+  --sp-8: 1.5rem;     /* 24 */
+  --sp-9: 2rem;       /* 32 */
+  --sp-10: 2.5rem;    /* 40 */
+  --sp-11: 3rem;      /* 48 */
+
+  /* --- shape ------------------------------------------------------------- */
+  --r-sm: 3px;
+  --r-md: 5px;
+  --r-lg: 8px;
+  --r-pill: 999px;
+  --bw: 1px;          /* one border width; hierarchy comes from colour */
+
+  /* --- layout ------------------------------------------------------------ */
+  --sidebar-w: 226px;
+  --appbar-h: 52px;
+  --content-max: 1240px;
+  --content-pad: var(--sp-6);
+
+  /* --- motion (short, purposeful; overridden by reduced-motion) ---------- */
+  --dur-1: 90ms;
+  --dur-2: 150ms;
+  --dur-3: 220ms;
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* --- elevation --------------------------------------------------------- */
+  --z-content: 1;
+  --z-sticky: 20;
+  --z-appbar: 30;
+  --z-drawer: 40;
+  --z-dialog: 50;
+  --z-toast: 60;
+
+  /* ======================= DARK PALETTE (default) ======================== */
+  /* Cool, low-chroma neutrals. Not black: a NAS dashboard is read for long
+     stretches and pure black + white text is fatiguing. */
+  --bg:            #0e1116;
+  --bg-sunken:     #0a0d11;   /* log wells, code, inputs                    */
+  --surface:       #151a21;   /* cards, sidebar                             */
+  --surface-2:     #1b212a;   /* table heads, chips, inset rows             */
+  --surface-3:     #222a34;   /* hover                                      */
+  --border:        #262f3a;
+  --border-strong: #36414f;
+  --overlay:       rgba(6, 8, 11, 0.66);
+
+  --text:        #e7ecf2;
+  --text-muted:  #98a5b3;
+  --text-faint:  #6a7784;
+  --text-invert: #0a0d11;
+
+  /* Brand: a cool teal. Deliberately NOT the ecosystem's amber — amber is
+     reserved here for SAFE MODE, which must never be confused with branding. */
+  --brand:        #2fab9e;
+  --brand-hover:  #37c0b1;
+  --brand-press:  #279287;
+  --brand-fg:     #05201d;   /* text on a filled brand surface */
+  --brand-text:   #4fd0c1;   /* brand as foreground on dark    */
+  --brand-tint:   rgba(47, 171, 158, 0.13);
+  --brand-border: rgba(47, 171, 158, 0.42);
+
+  --ok:        #3fbe7c;
+  --ok-text:   #58d18f;
+  --ok-tint:   rgba(63, 190, 124, 0.13);
+  --ok-border: rgba(63, 190, 124, 0.40);
+
+  --warn:        #dd9f2e;
+  --warn-text:   #f0b64a;
+  --warn-tint:   rgba(221, 159, 46, 0.14);
+  --warn-border: rgba(221, 159, 46, 0.45);
+
+  --danger:        #e2565b;
+  --danger-text:   #f2757a;
+  --danger-tint:   rgba(226, 86, 91, 0.13);
+  --danger-border: rgba(226, 86, 91, 0.42);
+
+  --info:        #5b95e8;
+  --info-text:   #7fb0f2;
+  --info-tint:   rgba(91, 149, 232, 0.13);
+  --info-border: rgba(91, 149, 232, 0.40);
+
+  --focus: #7fb0f2;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.42);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* ========================== LIGHT PALETTE ================================
+   Drawn, not inverted: the light theme keeps the same hierarchy (page cooler
+   than card, card cooler than nothing) and darkens every status hue so it
+   still clears 4.5:1 on a white card.
+   ======================================================================== */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg:            #f2f4f7;
+  --bg-sunken:     #e9edf2;
+  --surface:       #ffffff;
+  --surface-2:     #f4f6f9;
+  --surface-3:     #e9edf2;
+  --border:        #dce2ea;
+  --border-strong: #bcc6d2;
+  --overlay:       rgba(23, 30, 39, 0.42);
+
+  --text:        #18202a;
+  --text-muted:  #5a6875;
+  --text-faint:  #7d8996;
+  --text-invert: #ffffff;
+
+  --brand:        #12857a;
+  --brand-hover:  #0f736a;
+  --brand-press:  #0b5f58;
+  --brand-fg:     #ffffff;
+  --brand-text:   #0f736a;
+  --brand-tint:   rgba(18, 133, 122, 0.10);
+  --brand-border: rgba(18, 133, 122, 0.34);
+
+  --ok:        #16794c;
+  --ok-text:   #16794c;
+  --ok-tint:   rgba(22, 121, 76, 0.10);
+  --ok-border: rgba(22, 121, 76, 0.32);
+
+  --warn:        #96650a;
+  --warn-text:   #8a5c07;
+  --warn-tint:   rgba(196, 137, 24, 0.14);
+  --warn-border: rgba(150, 101, 10, 0.36);
+
+  --danger:        #c0343a;
+  --danger-text:   #b32a30;
+  --danger-tint:   rgba(192, 52, 58, 0.09);
+  --danger-border: rgba(192, 52, 58, 0.32);
+
+  --info:        #1f66c4;
+  --info-text:   #1a5cb4;
+  --info-tint:   rgba(31, 102, 196, 0.09);
+  --info-border: rgba(31, 102, 196, 0.30);
+
+  --focus: #1f66c4;
+
+  --shadow-sm: 0 1px 2px rgba(20, 28, 38, 0.08);
+  --shadow-md: 0 4px 14px rgba(20, 28, 38, 0.10);
+  --shadow-lg: 0 16px 40px rgba(20, 28, 38, 0.16);
+}
+
+/* Follow the OS only while the user has not chosen. The inline head script
+   stamps data-theme as soon as a choice exists, so this never fights it. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) {
+    color-scheme: light;
+
+    --bg:            #f2f4f7;
+    --bg-sunken:     #e9edf2;
+    --surface:       #ffffff;
+    --surface-2:     #f4f6f9;
+    --surface-3:     #e9edf2;
+    --border:        #dce2ea;
+    --border-strong: #bcc6d2;
+    --overlay:       rgba(23, 30, 39, 0.42);
+
+    --text:        #18202a;
+    --text-muted:  #5a6875;
+    --text-faint:  #7d8996;
+    --text-invert: #ffffff;
+
+    --brand:        #12857a;
+    --brand-hover:  #0f736a;
+    --brand-press:  #0b5f58;
+    --brand-fg:     #ffffff;
+    --brand-text:   #0f736a;
+    --brand-tint:   rgba(18, 133, 122, 0.10);
+    --brand-border: rgba(18, 133, 122, 0.34);
+
+    --ok:        #16794c;
+    --ok-text:   #16794c;
+    --ok-tint:   rgba(22, 121, 76, 0.10);
+    --ok-border: rgba(22, 121, 76, 0.32);
+
+    --warn:        #96650a;
+    --warn-text:   #8a5c07;
+    --warn-tint:   rgba(196, 137, 24, 0.14);
+    --warn-border: rgba(150, 101, 10, 0.36);
+
+    --danger:        #c0343a;
+    --danger-text:   #b32a30;
+    --danger-tint:   rgba(192, 52, 58, 0.09);
+    --danger-border: rgba(192, 52, 58, 0.32);
+
+    --info:        #1f66c4;
+    --info-text:   #1a5cb4;
+    --info-tint:   rgba(31, 102, 196, 0.09);
+    --info-border: rgba(31, 102, 196, 0.30);
+
+    --focus: #1f66c4;
+
+    --shadow-sm: 0 1px 2px rgba(20, 28, 38, 0.08);
+    --shadow-md: 0 4px 14px rgba(20, 28, 38, 0.10);
+    --shadow-lg: 0 16px 40px rgba(20, 28, 38, 0.16);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-1: 0ms; --dur-2: 0ms; --dur-3: 0ms; }
+}

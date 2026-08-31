@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% block title %}Sign in — {{ app_name }}{% endblock %}
+
+{#- ---------------------------------------------------------------------------
+    Sign in.
+
+    THIS PAGE RESOLVES NO BACKEND STATE. `pages.context()` only builds the
+    status payload for an authenticated request, so nothing here can name the
+    Plex server, its URL or machine id, the schedule, the safe-mode state, the
+    user list, or how many rules exist. An unauthenticated caller learns that
+    something is listening on this port and nothing else — not even the version,
+    which is a free fingerprint for anyone scanning.
+
+    That is the whole design constraint. The `hide_nav` shell already drops the
+    status rail, the mode banner and the sidebar; this template must not put any
+    of it back. If a future field is wanted here, it goes through the viewmodel
+    and the API first, and it still does not belong on this page.
+
+    The one thing it does say out loud is what went wrong, because a person
+    locked out of their own homelab needs to know whether they mistyped or were
+    rate limited. Neither sentence reveals anything about the instance.
+--------------------------------------------------------------------------- #}
+
+{% block content %}
+<section class="panel login">
+  <div class="panel__body">
+    <div class="login__head">
+      <span class="login__lock">{{ icons.icon('shield', 20) }}</span>
+      <div>
+        <h1 class="login__title" id="login-title">Sign in</h1>
+        <p class="login__sub">This instance is password protected.</p>
+      </div>
+    </div>
+
+    {% if error %}
+    {# The route hands down its own sentence and its own status code — a wrong
+       password and a rate limit are different problems with different fixes. #}
+    <div class="callout callout--err" role="alert">
+      <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
+      <div class="callout__body">
+        <strong>{{ error }}</strong>
+      </div>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/login" class="stack" novalidate>
+      <div class="field">
+        <label class="field__label" for="password">Password</label>
+        <div class="secretfield">
+          <input class="input" type="password" id="password" name="password"
+                 autocomplete="current-password" autocapitalize="off"
+                 autocorrect="off" spellcheck="false" required autofocus
+                 aria-describedby="login-hint">
+          <button type="button" class="btn btn--sm" id="reveal"
+                  aria-controls="password" aria-pressed="false">Show</button>
+        </div>
+        <span class="field__hint" id="login-hint">
+          The password set under Settings → Authentication. There is no account
+          name — this is a single shared password for the whole instance.
+        </span>
+      </div>
+
+      <button type="submit" class="btn btn--primary btn--block">
+        {{ icons.icon('logout', 15) }} Sign in
+      </button>
+    </form>
+  </div>
+
+  <div class="panel__foot login__foot">
+    Forgotten it? Stop the container, delete
+    <span class="mono">ui_password_hash</span> and
+    <span class="mono">ui_password_salt</span> from the
+    <span class="mono">settings</span> table in
+    <span class="mono">$CONFIG_DIR/unwatcharr.db</span>, then start it again —
+    the UI reopens with no password and you can set a new one.
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  // A deliberate toggle rather than a plain-text field: on a NAS this gets
+  // typed on a phone keyboard often enough that hiding a typo is the bigger
+  // problem, but it is never revealed by default.
+  var field = document.getElementById("password");
+  var button = document.getElementById("reveal");
+  button.addEventListener("click", function () {
+    var shown = field.type === "text";
+    field.type = shown ? "password" : "text";
+    button.textContent = shown ? "Show" : "Hide";
+    button.setAttribute("aria-pressed", shown ? "false" : "true");
+    field.focus();
+  });
+})();
+</script>
+{% endblock %}

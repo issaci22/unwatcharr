@@ -1,0 +1,53 @@
+{
+  "MediaContainer": {
+    "size": 3,
+    "totalSize": 3,
+    "identifier": "com.plexapp.plugins.library",
+    "librarySectionID": 2,
+    "librarySectionTitle": "TV Shows",
+    "viewGroup": "show",
+    "Metadata": [
+      {
+        "ratingKey": "2000",
+        "key": "/library/metadata/2000/children",
+        "type": "show",
+        "title": "The Expanse",
+        "year": 2015,
+        "thumb": "/library/metadata/2000/thumb/1600000000",
+        "leafCount": 3,
+        "viewedLeafCount": 3,
+        "childCount": 1,
+        "addedAt": 1500000000,
+        "Genre": [{ "tag": "Sci-Fi" }],
+        "Collection": [{ "tag": "Space Opera" }]
+      },
+      {
+        "ratingKey": "2100",
+        "key": "/library/metadata/2100/children",
+        "type": "show",
+        "title": "Severance",
+        "year": 2022,
+        "thumb": "/library/metadata/2100/thumb/1600000000",
+        "leafCount": 3,
+        "viewedLeafCount": 2,
+        "childCount": 1,
+        "addedAt": 1600000000,
+        "Genre": [{ "tag": "Thriller" }]
+      },
+      {
+        "ratingKey": "2200",
+        "key": "/library/metadata/2200/children",
+        "type": "show",
+        "title": "Chernobyl",
+        "year": 2019,
+        "thumb": "/library/metadata/2200/thumb/1600000000",
+        "leafCount": 2,
+        "viewedLeafCount": 2,
+        "childCount": 1,
+        "addedAt": 1600000000,
+        "Genre": [{ "tag": "Drama" }],
+        "Label": [{ "tag": "Keep" }]
+      }
+    ]
+  }
+}

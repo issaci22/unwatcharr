@@ -1,0 +1,253 @@
+{#- ==========================================================================
+    Unwatcharr — application shell
+
+    One skeleton for every page. Before a page renders anything of its own the
+    shell has already answered: which server am I connected to, is Plex actually
+    going to be modified, and when does the next run happen.
+
+    Blocks a page may fill:
+      title      document title
+      content    the page body
+      scripts    page-specific JS, loaded after app.js
+
+    `hide_nav` switches to the bare centred shell used by sign-in and by
+    first-run setup — no navigation to places the user cannot go yet. The
+    wrapper markup is opened and closed in matching `if` branches rather than
+    by nesting, because `{% block content %}` may only be declared once.
+    ========================================================================= -#}
+{% import "_icons.html" as icons %}
+{% set nav_items = [
+  ("Overview", [
+    ("dashboard", "/",         "Dashboard", "dashboard"),
+    ("rules",     "/rules",    "Rules",     "rules"),
+    ("users",     "/users",    "Users",     "users"),
+  ]),
+  ("Activity", [
+    ("history",   "/history",  "History",   "history"),
+    ("logs",      "/logs",     "Logs",      "logs"),
+  ]),
+  ("System", [
+    ("settings",  "/settings", "Settings",  "settings"),
+  ]),
+] %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="Unwatcharr — schedule watched Plex media back to unwatched.">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+
+  {# Stamp the saved theme before first paint: a flash of the wrong theme on a
+     dark homelab dashboard is worse than the toggle itself. #}
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("unwatcharr.theme");
+        if (saved === "light" || saved === "dark") {
+          document.documentElement.setAttribute("data-theme", saved);
+        }
+      } catch (err) { /* private mode: fall through to the OS preference */ }
+    })();
+  </script>
+
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/theme.css">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+{% if hide_nav %}
+{# ----------------------------------------------------------- bare shell -- #}
+<div class="shell shell--bare{{ ' shell--bare-wide' if bare_wide }}">
+  <main id="main" class="content">
+    <div class="brand brand--stacked">
+      {{ icons.logo(30) }}
+      <span class="brand__name"><b>UN</b>WATCHARR
+        <span class="brand__sub">Watch · age · unwatch</span>
+      </span>
+    </div>
+
+{% else %}
+{# ------------------------------------------------------------ app shell -- #}
+<div class="shell">
+
+  {# Mobile only: drawer trigger, wordmark, mode chip, theme toggle. #}
+  <header class="appbar">
+    <button type="button" class="btn btn--ghost btn--icon" data-drawer-open
+            aria-controls="sidenav" aria-expanded="false">
+      {{ icons.icon("menu", 20) }}<span class="sr-only">Open navigation</span>
+    </button>
+    <a class="brand brand--bar" href="/">
+      {{ icons.logo(22) }}
+      <span class="brand__name"><b>UN</b>WATCHARR</span>
+    </a>
+    <div class="appbar__actions">
+      <a class="modechip {{ 'modechip--safe' if safe_mode else 'modechip--active' }}"
+         href="/settings"
+         title="{{ 'Safe mode: nothing in Plex is changed' if safe_mode else 'Active mode: runs can change Plex' }}">
+        {{ icons.icon("shield" if safe_mode else "unlock", 13) }}
+        {{ 'Safe' if safe_mode else 'Active' }}
+      </a>
+      <button type="button" class="btn btn--ghost btn--icon" data-theme-toggle
+              aria-label="Switch between the light and dark theme">
+        <span class="theme-icon theme-icon--dark">{{ icons.icon("sun", 17) }}</span>
+        <span class="theme-icon theme-icon--light">{{ icons.icon("moon", 17) }}</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="scrim" data-drawer-close hidden></div>
+
+  <aside class="sidenav" id="sidenav" data-open="false">
+    <button type="button" class="btn btn--ghost btn--icon sidenav__close" data-drawer-close>
+      {{ icons.icon("close", 18) }}<span class="sr-only">Close navigation</span>
+    </button>
+
+    <a class="brand" href="/">
+      {{ icons.logo(26) }}
+      <span class="brand__name"><b>UN</b>WATCHARR
+        <span class="brand__sub">Watch · age · unwatch</span>
+      </span>
+    </a>
+
+    <nav class="nav" aria-label="Primary">
+      {% for group, items in nav_items %}
+        <div class="nav__label">{{ group }}</div>
+        {% for key, href, label, glyph in items %}
+        <a class="nav__item" href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}>
+          {{ icons.icon(glyph, 17) }}
+          <span>{{ label }}</span>
+          {%- if key == 'dashboard' and status and status.warnings %}
+          <span class="nav__tag nav__tag--warn">{{ status.warnings | length }}<span class="sr-only"> items need attention</span></span>
+          {%- elif key == 'users' and status and status.users.unlinked %}
+          <span class="nav__tag nav__tag--warn">{{ status.users.unlinked }}<span class="sr-only"> users are not linked</span></span>
+          {%- endif %}
+        </a>
+        {% endfor %}
+      {% endfor %}
+    </nav>
+
+    <div class="sidenav__spacer"></div>
+
+    <div class="sidenav__foot">
+      {# Safe mode is legible from every page, not only from Settings. #}
+      <a class="modechip {{ 'modechip--safe' if safe_mode else 'modechip--active' }}"
+         href="/settings">
+        {{ icons.icon("shield" if safe_mode else "unlock", 14) }}
+        {{ 'Safe mode on' if safe_mode else 'Active mode' }}
+      </a>
+
+      <div class="cluster cluster--tight">
+        <button type="button" class="btn btn--ghost btn--sm" data-theme-toggle
+                aria-label="Switch between the light and dark theme">
+          <span class="theme-icon theme-icon--dark">{{ icons.icon("sun", 15) }}</span>
+          <span class="theme-icon theme-icon--light">{{ icons.icon("moon", 15) }}</span>
+          <span class="theme-label" aria-hidden="true"></span>
+        </button>
+        {% if password_set %}
+        <form method="post" action="/logout">
+          <button type="submit" class="btn btn--ghost btn--sm">
+            {{ icons.icon("logout", 15) }} Sign out
+          </button>
+        </form>
+        {% endif %}
+      </div>
+
+      <div class="sidenav__meta">
+        <span>v{{ version }}</span>
+        {% if status %}<span>{{ status.app.timezone }}</span>{% endif %}
+      </div>
+    </div>
+  </aside>
+
+  <div class="shell__main">
+    {% if status %}
+    {# The same three facts on every page: where it is pointed, when it next
+       acts, and whether it is acting right now. #}
+    <div class="statusrail">
+      <div class="statusitem">
+        {% if status.plex.connected %}
+        <span class="dot dot--ok"></span>
+        <span class="statusitem__label">Plex</span>
+        <span class="statusitem__value">{{ status.plex.server_name or 'Connected' }}</span>
+        {% else %}
+        <span class="dot dot--danger"></span>
+        <span class="statusitem__label">Plex</span>
+        <span class="statusitem__value text-danger">Not connected</span>
+        {% endif %}
+      </div>
+
+      <div class="statusitem statusitem--optional">
+        <span class="statusitem__label">Next run</span>
+        {% if status.schedule.enabled and status.schedule.next_run_at %}
+        <span class="statusitem__value" title="{{ status.schedule.next_run_at | when }}">
+          {{ status.schedule.next_run_at | until }}</span>
+        {% else %}
+        <span class="statusitem__value muted">Not scheduled</span>
+        {% endif %}
+      </div>
+
+      <div class="statusitem statusitem--optional">
+        <span class="statusitem__label">Last run</span>
+        <span class="statusitem__value">
+          {% if status.last_run %}{{ status.last_run.relative }}{% else %}Never{% endif %}</span>
+      </div>
+
+      <span class="statusrail__spacer"></span>
+
+      <div class="statusitem" id="rail-run"{% if not status.run %} hidden{% endif %}>
+        <span class="dot dot--live"></span>
+        <span class="statusitem__value" id="rail-run-text">
+          {% if status.run %}Run in progress — {{ status.run.percent }}%{% endif %}</span>
+      </div>
+    </div>
+    {% endif %}
+
+    <main id="main" class="content">
+      {% if active not in ('setup', 'login') %}
+      {# The one thing that must never be missed: whether a run can touch Plex.
+         Both states are loud, and they do not look like each other. #}
+      <div class="modebanner {{ 'modebanner--safe' if safe_mode else 'modebanner--active' }}"
+           role="status">
+        <span class="modebanner__icon">{{ icons.icon("shield" if safe_mode else "unlock", 18) }}</span>
+        <div class="modebanner__body">
+          {% if safe_mode %}
+          <strong class="modebanner__title">Safe mode — no Plex changes will be made</strong>
+          <span class="modebanner__text">Every run, scheduled or manual, is calculated in
+            full and then forced to a dry run. Previews and history still work, so you can
+            see exactly what would happen before allowing it.</span>
+          {% else %}
+          <strong class="modebanner__title">Active mode — runs can modify Plex watch state</strong>
+          <span class="modebanner__text">Scheduled and manual runs will really mark matching
+            items unwatched. Changes are recorded in History and can be undone, but Plex
+            cannot restore the original watch dates.</span>
+          {% endif %}
+        </div>
+        {% if active != 'settings' %}
+        <span class="modebanner__action"><a class="btn btn--sm" href="/settings">Change</a></span>
+        {% endif %}
+      </div>
+      {% endif %}
+{% endif %}
+
+{% block content %}{% endblock %}
+
+{% if hide_nav %}
+  </main>
+</div>
+{% else %}
+    </main>
+  </div>
+</div>
+{% endif %}
+
+{# Screen readers are told what happened; a toast is never silent colour. #}
+<div class="toast-region" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
+
+<script src="/static/app.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

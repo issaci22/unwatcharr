@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% import "_empty.html" as blank %}
+{% block title %}Dashboard — {{ app_name }}{% endblock %}
+
+{#- The dashboard answers five questions, in this order:
+      what is it doing            -> the run console
+      what happens next           -> the schedule card
+      what would be changed       -> the last dry run, and the rules card
+      what happened recently      -> recent runs, then recent changes
+      is Plex actually modifiable -> the mode banner in the shell
+    Nothing here is decorative: every number comes from GET /api/status or a
+    run row, and no metric is invented to fill a card. -#}
+
+{% set last_dry = runs | selectattr('mode', 'equalto', 'dry') | list | first %}
+{# The full Run viewmodel for the newest run: status.last_run is a trimmed
+   copy that carries no `error`, and a failed run must be able to say why. #}
+{% set last = runs | first %}
+
+{% block content %}
+<div class="pagehead">
+  <div class="pagehead__text">
+    <h1 class="pagehead__title">Dashboard</h1>
+    <p class="pagehead__sub">
+      {% if status.plex.connected %}
+      {{ status.plex.server_name or 'Plex' }} · <span class="mono">{{ status.plex.url }}</span>
+      {% else %}
+      Not connected to Plex yet.
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+{# The app's own way of saying something is wrong. Rendered verbatim: the
+   sentences are already written for a human. #}
+{% for warning in status.warnings %}
+<div class="callout callout--{{ 'err' if warning.level == 'err' else warning.level }}">
+  <span class="callout__icon">
+    {{ icons.icon('alert' if warning.level in ('warn', 'err') else 'info', 16) }}</span>
+  <div class="callout__body">
+    {{ warning.message }}
+    {% if 'password' in warning.message %}
+    <a href="/settings">Set one now</a>.
+    {% elif 'rules' in warning.message %}
+    <a href="/rules">Create a rule</a>.
+    {% elif 'token' in warning.message %}
+    <a href="/users">Link the accounts</a>.
+    {% elif 'setup' in warning.message or 'connected' in warning.message %}
+    <a href="/setup">Finish setup</a>.
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+<div class="statgrid">
+  <div class="stat-card">
+    <span class="stat-card__label">Items unwatched</span>
+    <span class="stat-card__value">{{ status.stats.applied_total }}</span>
+    <div class="stat-card__foot">
+      {{ status.stats.applied_7d }} in 7 days · {{ status.stats.applied_30d }} in 30
+    </div>
+  </div>
+
+  <div class="stat-card {{ '' if status.stats.rules_enabled else 'stat-card--warn' }}">
+    <span class="stat-card__label">Active rules</span>
+    <span class="stat-card__value">{{ status.stats.rules_enabled }}<small> / {{ status.stats.rules_total }}</small></span>
+    <div class="stat-card__foot">
+      {% if status.stats.rules_enabled %}
+      across {{ status.stats.libraries }} librar{{ 'y' if status.stats.libraries == 1 else 'ies' }}
+      {% else %}
+      nothing will happen on a run
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="stat-card {{ 'stat-card--warn' if status.users.unlinked else '' }}">
+    <span class="stat-card__label">Plex users managed</span>
+    <span class="stat-card__value">{{ status.users.linked }}<small> / {{ status.users.total }}</small></span>
+    <div class="stat-card__foot">
+      {% if status.users.expired %}
+      {{ status.users.expired }} token(s) rejected
+      {% elif status.users.unlinked %}
+      {{ status.users.unlinked }} not linked yet
+      {% else %}
+      every account is linked
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-card__label">Undone</span>
+    <span class="stat-card__value">{{ status.stats.undone_total }}</span>
+    <div class="stat-card__foot">
+      {% if status.stats.runs_total %}
+      over {{ status.stats.runs_total }} run{{ '' if status.stats.runs_total == 1 else 's' }}
+      {% else %}
+      nothing has run yet
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="dash">
+<div class="dash__main stack">
+
+  {# ------------------------------------------------------------ run console #}
+  <section class="panel">
+    <div class="panel__head">
+      <h2 class="panel__title">Run</h2>
+      <div class="panel__actions">
+        {% if status.run %}
+        <button type="button" class="btn btn--danger btn--sm" id="btn-stop"
+                onclick="stopRun(this)">Stop</button>
+        {% endif %}
+      </div>
+    </div>
+    <div class="panel__body">
+      <div class="runbar">
+        <div class="runbar__state">
+          {# Live: driven by app.js from GET /api/runs/current. #}
+          <div id="run-live" {% if not status.run %}hidden{% endif %}>
+            <div class="cluster cluster--tight">
+              <span class="dot dot--live"></span>
+              <strong class="small">Running</strong>
+            </div>
+            <span class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+                  aria-valuenow="{{ status.run.percent if status.run else 0 }}"
+                  aria-label="Run progress">
+              <span class="progress__fill" id="run-meter"
+                    style="width: {{ status.run.percent if status.run else 0 }}%"></span>
+            </span>
+            <p class="small muted mb-0" id="run-progress">
+              {% if status.run %}Starting…{% endif %}
+            </p>
+          </div>
+
+          {# Idle: what the last run actually did. #}
+          <div id="run-idle" {% if status.run %}hidden{% endif %}>
+            {% if last %}
+            <div class="cluster cluster--tight">
+              {# A failed run is the headline, whatever mode it was in. #}
+              {% if last.status == 'failed' %}
+              <span class="badge-new badge-new--danger">{{ icons.icon('alert', 12) }} Failed</span>
+              {% elif last.status == 'cancelled' %}
+              <span class="badge-new badge-new--warn">Stopped</span>
+              {% elif last.mode == 'dry' %}
+              <span class="badge-new badge-new--info">{{ icons.icon('preview', 12) }} Dry run</span>
+              {% elif last.applied %}
+              <span class="badge-new badge-new--ok">{{ icons.icon('check', 12) }} Applied</span>
+              {% else %}
+              <span class="badge-new">No changes</span>
+              {% endif %}
+              <span class="small muted">{{ last.relative }} · {{ last.duration }}</span>
+            </div>
+            <p class="small muted mb-0" style="margin-top: var(--sp-3)">
+              Scanned {{ last.scanned }},
+              matched {{ last.matched }},
+              {% if last.mode == 'dry' %}
+              changed nothing — it was a dry run.
+              {% else %}
+              marked {{ last.applied }} unwatched{% if last.failed %},
+              {{ last.failed }} failed{% endif %}.
+              {% endif %}
+            </p>
+            {% if last.status == 'failed' and last.error %}
+            <div class="callout callout--err mb-0" style="margin-top: var(--sp-4)">
+              <span class="callout__icon">{{ icons.icon('alert', 15) }}</span>
+              <div class="callout__body small">
+                {{ last.error }}
+                <a href="/logs">Check the logs</a> for what happened, then try again.
+              </div>
+            </div>
+            {% endif %}
+            {% else %}
+            <p class="small muted mb-0">
+              Nothing has run yet. A dry run scans Plex and records what it
+              <em>would</em> change, without touching anything.
+            </p>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="runbar__actions">
+          <button type="button" class="btn" onclick="startRun('dry', null, this)"
+                  {% if status.run %}disabled{% endif %}>
+            {{ icons.icon('preview', 15) }} Dry run
+          </button>
+          <button type="button" class="btn btn--primary" onclick="applyRun(this)"
+                  {% if status.run %}disabled{% endif %}>
+            {{ icons.icon('play', 15) }} Run now
+          </button>
+        </div>
+      </div>
+
+      {# Exactly what pressing "Run now" would do, in one sentence. #}
+      <div class="effect {{ 'effect--safe' if safe_mode else 'effect--active' }}"
+           style="margin-top: var(--sp-5)">
+        {{ icons.icon('shield' if safe_mode else 'unlock', 15) }}
+        <span>
+          {% if safe_mode %}
+          Safe mode is on, so “Run now” is recorded as a dry run and nothing in
+          Plex changes. <a href="/settings">Turn it off</a> once a preview looks right.
+          {% else %}
+          “Run now” will really mark matching items unwatched for every linked user.
+          {% endif %}
+        </span>
+      </div>
+
+      {% if last_dry and last_dry.matched %}
+      <p class="small muted mb-0" style="margin-top: var(--sp-4)">
+        The last dry run ({{ last_dry.relative }}) matched
+        <strong class="text-info">{{ last_dry.matched }}</strong>
+        item{{ '' if last_dry.matched == 1 else 's' }} that would be unwatched.
+        <a href="/history">See what it found</a>.
+      </p>
+      {% endif %}
+    </div>
+  </section>
+
+  {# ------------------------------------------------------------ recent runs #}
+  <section class="panel panel--flush">
+    <div class="panel__head">
+      <h2 class="panel__title">Recent runs</h2>
+      <div class="panel__actions"><a class="btn btn--sm" href="/history">All history</a></div>
+    </div>
+    {% if not runs %}
+    {{ blank.state('clock', 'No run has finished yet',
+       'A run applies every enabled rule to every linked account and records
+        what it decided, item by item.',
+       ['Start with a dry run from the panel above — it scans your libraries and records exactly what would change, without modifying Plex.' | safe,
+        'Read the result under <strong>History</strong>, including every item it skipped and why.' | safe], 28) }}
+    {% else %}
+    <div class="tablewrap">
+      <table class="table table--cards">
+        <thead>
+          <tr>
+            <th>When</th><th>Result</th><th class="num">Scanned</th>
+            <th class="num">Matched</th><th class="num">Changed</th>
+            <th>Took</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in runs %}
+          <tr>
+            <td data-label="When">
+              <span class="primary-cell">{{ run.relative }}</span>
+              <span class="sub">{{ run.started_at | when }} · {{ run.trigger }}</span>
+            </td>
+            <td data-label="Result">
+              {% if run.mode == 'dry' %}
+              <span class="badge-new badge-new--info">Dry run</span>
+              {% elif run.changed_anything %}
+              <span class="badge-new badge-new--ok">Applied</span>
+              {% else %}
+              <span class="badge-new">No changes</span>
+              {% endif %}
+            </td>
+            <td class="num" data-label="Scanned">{{ run.scanned }}</td>
+            <td class="num" data-label="Matched">{{ run.matched }}</td>
+            {# A dry run changed nothing, whatever it matched. Never blur this. #}
+            <td class="num" data-label="Changed">
+              {% if run.mode == 'dry' %}
+              <span class="faint" title="A dry run never changes anything">—</span>
+              {% else %}{{ run.applied }}{% endif %}
+            </td>
+            <td data-label="Took">{{ run.duration }}</td>
+            <td data-label="Status">
+              {% if run.status == 'failed' %}
+              <span class="badge-new badge-new--danger" title="{{ run.error }}">
+                {{ icons.icon('alert', 11) }} Failed</span>
+              {% elif run.status == 'cancelled' %}
+              <span class="badge-new badge-new--warn">Stopped</span>
+              {% elif run.status == 'running' %}
+              <span class="badge-new badge-new--info">Running</span>
+              {% else %}
+              <span class="badge-new badge-new--ok">{{ icons.icon('check', 11) }} Finished</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+
+  {# --------------------------------------------------------- recent changes #}
+  <section class="panel panel--flush">
+    <div class="panel__head">
+      <h2 class="panel__title">Recent changes</h2>
+      <span class="panel__hint">What was really marked unwatched</span>
+      <div class="panel__actions"><a class="btn btn--sm" href="/history">All changes</a></div>
+    </div>
+    {% if not actions %}
+    {{ blank.state('empty-box', 'Nothing has been changed in Plex',
+       'Dry runs and previews never appear here — this list only records changes
+        that really happened.',
+       ['While <strong>safe mode</strong> is on, that is the correct and expected state.' | safe,
+        'Use <strong>Rules → Preview</strong> to see what would change before allowing it.' | safe], 28) }}
+    {% else %}
+    <div class="activity">
+      {% for item in actions %}
+      <div class="activity__row">
+        {% if item.poster_url %}
+        <img class="poster" src="{{ item.poster_url }}" alt="" loading="lazy" decoding="async">
+        {% else %}
+        <span class="poster"></span>
+        {% endif %}
+        <div class="activity__body">
+          <div class="activity__title truncate">{{ item.display_title }}</div>
+          <div class="activity__meta">
+            {{ item.user_title }} · {{ item.rule_name or 'rule removed' }}
+            {%- if item.status == 'undone' %} · <span class="text-warn">undone</span>
+            {%- elif item.status == 'failed' %} · <span class="text-danger">failed</span>{% endif %}
+          </div>
+        </div>
+        <span class="activity__when">{{ item.applied_at | when }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+</div>
+
+<aside class="dash__side stack">
+
+  {# --------------------------------------------------------------- schedule #}
+  <section class="panel">
+    <div class="panel__head">
+      <h2 class="panel__title">Schedule</h2>
+      <div class="panel__actions"><a class="btn btn--sm" href="/settings">Change</a></div>
+    </div>
+    <div class="panel__body stack stack--sm">
+      {% if status.schedule.enabled and status.schedule.next_run_at %}
+      <div>
+        <div class="caps">Next run</div>
+        <div class="next-run">{{ status.schedule.next_run_at | until }}</div>
+        <div class="small muted">{{ status.schedule.next_run_at | when }}</div>
+      </div>
+      <dl class="deflist">
+        <dt>Repeats</dt>
+        <dd>
+          {% if status.schedule.kind == 'interval' %}
+          every {{ status.schedule.hours }} hour{{ '' if status.schedule.hours == 1 else 's' }}
+          {% else %}
+          <span class="mono">{{ status.schedule.cron }}</span>
+          {% endif %}
+        </dd>
+        <dt>Last</dt>
+        <dd>
+          {%- if status.schedule.last_scheduled_run_at -%}
+          {{ status.schedule.last_scheduled_run_at | when }}
+          {%- else -%}<span class="muted">no scheduled run yet</span>{%- endif -%}
+        </dd>
+        <dt>Mode</dt>
+        <dd>
+          {% if safe_mode %}
+          <span class="text-warn">dry run (safe mode)</span>
+          {% else %}
+          <span class="text-danger">will modify Plex</span>
+          {% endif %}
+        </dd>
+      </dl>
+      {% else %}
+      <div>
+        <div class="caps">Next run</div>
+        <div class="next-run next-run--off">Automatic runs are off</div>
+      </div>
+      <p class="small muted mb-0">
+        Unwatcharr will only do something when you press Run.
+        <a href="/settings">Turn on a schedule</a>.
+      </p>
+      {% endif %}
+      {% if status.schedule.enabled and not status.schedule.running %}
+      <div class="callout callout--warn mb-0">
+        <span class="callout__icon">{{ icons.icon('alert', 15) }}</span>
+        <div class="callout__body small">The scheduler is not running. Restart the container
+          if this does not clear.</div>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+
+  {# ------------------------------------------------------------------ rules #}
+  <section class="panel panel--flush">
+    <div class="panel__head">
+      <h2 class="panel__title">Rules</h2>
+      <div class="panel__actions"><a class="btn btn--sm" href="/rules">Manage</a></div>
+    </div>
+    {% if not rules %}
+    {% call blank.state('rules', 'No rules yet',
+        'Nothing happens on a run until a rule exists.',
+        ['Open <strong>Rules</strong> and create one: a timer, the libraries it covers, and who it applies to.' | safe], 28) %}
+      <a class="btn btn--primary btn--sm" href="/rules">{{ icons.icon('plus', 14) }} New rule</a>
+    {% endcall %}
+    {% else %}
+    {# Enabled first — those are the rules that will actually do something on
+       the next run. Jinja's sort is stable, so name order survives inside each
+       group. Five is enough for a summary; the rest live on /rules. #}
+    {% set ordered = rules | sort(attribute='enabled', reverse=true) %}
+    {% for rule in ordered[:5] %}
+    <div class="rulemini {{ '' if rule.enabled else 'rulemini--off' }}">
+      <span class="dot {{ 'dot--ok' if rule.enabled else '' }}" style="margin-top: 7px"></span>
+      <div class="rulemini__body">
+        <div class="rulemini__name clamp-2">{{ rule.name }}</div>
+        <div class="rulemini__meta">
+          {{ 'Movies' if rule.media_type == 'movie' else 'TV' }} ·
+          {{ rule | threshold }} ·
+          {{ rule.libraries | map(attribute='title') | join(', ') or 'no libraries' }}
+        </div>
+      </div>
+      {% if not rule.enabled %}<span class="badge-new">Off</span>{% endif %}
+    </div>
+    {% endfor %}
+    {% if rules | length > 5 %}
+    <div class="panel__foot">
+      <a href="/rules">{{ rules | length - 5 }} more rule{{ '' if rules | length == 6 else 's' }}</a>
+    </div>
+    {% endif %}
+    {% endif %}
+  </section>
+</aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Read `effective_mode`, never the mode asked for: with safe mode on this
+  // request is downgraded server-side and the confirmation must say so.
+  async function applyRun(source) {
+    {% if safe_mode %}
+    toast("Safe mode is on — this runs as a dry run and changes nothing in Plex.", "warn");
+    startRun("apply", null, source);
+    {% else %}
+    var ok = await confirmDialog({
+      title: "Run every enabled rule?",
+      body: [
+        "Matching items will really be marked unwatched in Plex for every linked user.",
+        "Safe mode is off, so this is not a dry run."
+      ],
+      detail: "Changes are recorded in History and can be undone, but Plex cannot restore the original watch dates or play counts.",
+      confirmLabel: "Run and apply",
+      tone: "danger"
+    });
+    if (ok) { startRun("apply", null, source); }
+    {% endif %}
+  }
+
+  function stopRun(source) {
+    act("/api/runs/cancel", { method: "POST", reload: false, source: source },
+        "Stop requested — the run halts after the current item.");
+  }
+</script>
+{% endblock %}

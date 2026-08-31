@@ -1,0 +1,1286 @@
+{% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% block title %}Setup — {{ app_name }}{% endblock %}
+
+{#- ---------------------------------------------------------------------------
+    First-launch setup — eight steps, one screen at a time.
+
+      1 Welcome        what this does, and the guided v1 import if one is found
+      2 Connect Plex   plex.tv link code, or a pasted address and token
+      3 Choose server  which of the account's servers this instance points at
+      4 Discover users who runs will be able to act as, and who still cannot
+      5 First rule     one working policy, or skip and do it later
+      6 Schedule       when it runs on its own
+      7 Safe mode      the one decision that makes this app harmless or not
+      8 Ready          what is set, what is still worth doing
+
+    Every step is server-rendered and present in the document from the start;
+    the script only unhides one at a time. There is no request per step and no
+    second render path, which is the same pattern the history and settings tabs
+    use.
+
+    NOTHING user-controlled is ever concatenated into markup. Server names,
+    user names and library titles arrive from the API and are written with
+    textContent into cloned <template> rows.
+
+    The v1 import is GUIDED, never automatic, and the wording says plainly what
+    services/migrate_v1.py actually guarantees: the old database is opened
+    read-only through db.open_readonly() and is never written, renamed or moved.
+    A test asserts the source file is byte-for-byte unchanged after an import.
+--------------------------------------------------------------------------- #}
+
+{% set steps = [
+  (1, 'Welcome',        'info'),
+  (2, 'Connect Plex',   'server'),
+  (3, 'Choose server',  'server'),
+  (4, 'Discover users', 'users'),
+  (5, 'First rule',     'rules'),
+  (6, 'Schedule',       'clock'),
+  (7, 'Safe mode',      'shield'),
+  (8, 'Ready',          'check'),
+] %}
+
+{% block content %}
+<div class="wizard" id="wizard"
+     data-connected="{{ 'true' if status and status.plex.connected else 'false' }}"
+     data-complete="{{ 'true' if setup_complete else 'false' }}"
+     data-safe-mode="{{ 'true' if safe_mode else 'false' }}"
+     data-password-set="{{ 'true' if password_set else 'false' }}">
+
+  {# ------------------------------------------------------------------ rail #}
+  <ol class="wizrail" aria-label="Setup progress">
+    {% for number, label, glyph in steps %}
+    <li class="wizrail__item" data-rail="{{ number }}" aria-current="false">
+      <span class="wizrail__mark">
+        <span class="wizrail__num">{{ number }}</span>
+        <span class="wizrail__tick">{{ icons.icon('check', 12) }}</span>
+      </span>
+      <span class="wizrail__label">{{ label }}</span>
+    </li>
+    {% endfor %}
+  </ol>
+
+  <div class="wizbody">
+
+  {# =============================================================== 1 welcome #}
+  <section class="panel wizstep" data-step="1" hidden>
+    <div class="panel__body">
+      <p class="wizstep__eyebrow caps">Step 1 of 8</p>
+      <h1 class="wizstep__title" tabindex="-1">Set up Unwatcharr</h1>
+      <p class="wizstep__lede">
+        Unwatcharr marks watched Plex media unwatched again once it has sat
+        long enough, on a schedule you control. It runs beside Plex and talks
+        to its HTTP API — nothing is installed into Plex itself.
+      </p>
+
+      <ul class="factlist">
+        <li class="factlist__item">
+          <span class="factlist__icon">{{ icons.icon('server', 16) }}</span>
+          <div>
+            <strong>Nothing happens without a rule.</strong>
+            <span class="muted small">A rule names a timer, the libraries it
+              covers, and who it applies to. You will write one in step 5.</span>
+          </div>
+        </li>
+        <li class="factlist__item">
+          <span class="factlist__icon">{{ icons.icon('users', 16) }}</span>
+          <div>
+            <strong>Plex watch state is per account.</strong>
+            <span class="muted small">A token only reads and writes the watch
+              state of the account it belongs to, so every account you want
+              included has to be linked individually.</span>
+          </div>
+        </li>
+        <li class="factlist__item">
+          <span class="factlist__icon">{{ icons.icon('shield', 16) }}</span>
+          <div>
+            <strong>Safe mode starts on.</strong>
+            <span class="muted small">Every run is calculated in full and then
+              forced to a dry run, so you can read exactly what would change
+              before anything does. Step 7 is where that is decided.</span>
+          </div>
+        </li>
+      </ul>
+
+      {% if v1.found and target_empty %}
+      {# Guided, never automatic. The offer states the read-only guarantee up
+         front, because "will this touch my old install" is the only question
+         that matters here. #}
+      <div class="v1card">
+        <div class="v1card__head">
+          <span class="badge-new badge-new--brand">{{ icons.icon('history', 12) }} Upgrade found</span>
+          <strong class="v1card__title">A Plex-Unwatcher v1 installation is on disk</strong>
+        </div>
+
+        <dl class="deflist v1card__facts">
+          <dt>Server</dt><dd>{{ v1.server_name or 'Unknown server' }}</dd>
+          <dt>Database</dt><dd class="mono tiny">{{ v1.path }}</dd>
+          <dt>Schema</dt><dd>v1 user_version {{ v1.schema_version }}</dd>
+          <dt>Contents</dt><dd>
+            {{ v1.counts.rules }} rule{{ '' if v1.counts.rules == 1 else 's' }} ·
+            {{ v1.counts.users }} user{{ '' if v1.counts.users == 1 else 's' }} ·
+            {{ v1.counts.libraries }} librar{{ 'y' if v1.counts.libraries == 1 else 'ies' }} ·
+            {{ v1.counts.runs }} run{{ '' if v1.counts.runs == 1 else 's' }} ·
+            {{ v1.counts.actions }} recorded change{{ '' if v1.counts.actions == 1 else 's' }}
+          </dd>
+        </dl>
+
+        <div class="callout callout--ok">
+          <span class="callout__icon">{{ icons.icon('shield', 16) }}</span>
+          <div class="callout__body">
+            <strong>Your v1 database is opened read-only and is never modified.</strong>
+            <div class="small muted">
+              The file at <span class="mono">{{ v1.path }}</span> is opened
+              through SQLite's <span class="mono">mode=ro</span> URI, which
+              rejects writes outright. It is never written to, renamed or moved,
+              and a test in this build asserts it is <strong>byte-for-byte
+              unchanged</strong> — same size, same modification time — after an
+              import completes. If the upgrade goes wrong, the old installation
+              is still exactly where you left it and still runs.
+            </div>
+          </div>
+        </div>
+
+        <details class="disclosure v1card__detail">
+          <summary>
+            <span class="disclosure__title">What comes across, and what deliberately does not</span>
+          </summary>
+          <div class="disclosure__body">
+            <ul class="tightlist">
+              <li><strong>Carried over:</strong> settings, libraries, users and
+                their tokens, rules, per-user overrides, run history and every
+                recorded change — so past changes stay undoable.</li>
+              <li><strong>Reshaped on the way in:</strong> a v1 rule's single
+                library becomes a library membership row, the library's type
+                becomes the rule's media type, TV rules land on
+                <span class="mono">episodes</span> scope (what v1 actually did),
+                and v1's per-rule-per-user run rows are regrouped by their batch
+                id into one run with a pass each.</li>
+              <li><strong>Never imported:</strong> the session secret. A fresh
+                one is generated here, because session secrets must not be
+                shared between installations. Everyone is signed out once.</li>
+              <li><strong>Dropped:</strong> any v1 setting that no longer exists
+                in 2.1, so a stale key cannot resurrect a removed behaviour.</li>
+            </ul>
+          </div>
+        </details>
+
+        <p class="field__error" data-err="v1" hidden></p>
+
+        <div class="btnrow">
+          <button type="button" class="btn btn--primary" id="v1-import">
+            {{ icons.icon('history', 15) }} Import from Plex-Unwatcher v1
+          </button>
+          <button type="button" class="btn" data-go="2">Set up fresh instead</button>
+        </div>
+      </div>
+
+      <div class="callout callout--ok" id="v1-done" hidden>
+        <span class="callout__icon">{{ icons.icon('check', 16) }}</span>
+        <div class="callout__body">
+          <strong data-slot="v1-headline">Imported.</strong>
+          <div class="small muted" data-slot="v1-detail"></div>
+        </div>
+      </div>
+
+      {% elif v1.found and not target_empty %}
+      <div class="callout callout--warn">
+        <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
+        <div class="callout__body">
+          <strong>A Plex-Unwatcher v1 database was found, but it cannot be imported.</strong>
+          <div class="small muted">
+            <span class="mono">{{ v1.path }}</span> holds
+            {{ v1.counts.rules }} rule{{ '' if v1.counts.rules == 1 else 's' }} and
+            {{ v1.counts.users }} user{{ '' if v1.counts.users == 1 else 's' }},
+            but this installation already has rules or users of its own.
+            Importing would mix two configurations together, so it is refused.
+            To import instead, start again from an empty
+            <span class="mono">/config</span> directory. The v1 file is untouched
+            either way — it is only ever opened read-only.
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="wizfoot">
+        <span class="wizfoot__note muted small">Nothing is written to Plex during setup.</span>
+        <button type="button" class="btn btn--primary" data-go="2">
+          Get started {{ icons.icon('chevron', 15) }}
+        </button>
+      </div>
+    </div>
+  </section>
+
+  {# =============================================================== 2 connect #}
+  <section class="panel wizstep" data-step="2" hidden>
+    <div class="panel__body">
+      <p class="wizstep__eyebrow caps">Step 2 of 8</p>
+      <h1 class="wizstep__title" tabindex="-1">Connect to Plex</h1>
+      <p class="wizstep__lede">
+        Unwatcharr needs a token to read your libraries. Signing in with plex.tv
+        is the easier route and also lets it mint tokens for your Plex Home
+        members later; pasting an address and token works on a server with no
+        outbound internet.
+      </p>
+
+      <div class="callout callout--ok" id="already-connected" hidden>
+        <span class="callout__icon">{{ icons.icon('check', 16) }}</span>
+        <div class="callout__body">
+          <strong>This instance is already connected to
+            <span data-slot="server-name">Plex</span>.</strong>
+          <div class="small muted">
+            Continue to review the rest of the setup, or connect somewhere else
+            below — the new connection replaces the current one.
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2 wizsplit">
+        {# --- link code ---------------------------------------------------- #}
+        <div class="wizroute">
+          <div class="wizroute__head">
+            <span class="badge-new badge-new--brand">Recommended</span>
+            <strong>Sign in with plex.tv</strong>
+          </div>
+          <p class="small muted">
+            Uses the plex.tv link code flow. Plex never redirects back to this
+            container, which is what makes it work on a NAS that is not
+            reachable from the internet.
+          </p>
+
+          <button type="button" class="btn btn--primary" id="pin-start">
+            {{ icons.icon('server', 15) }} Get a link code
+          </button>
+
+          <div class="pinbox" id="pin-box" hidden>
+            <p class="small muted mb-0">Open this page and enter the code:</p>
+            <a class="pinbox__link mono" id="pin-link" href="#" target="_blank" rel="noopener noreferrer"></a>
+            <span class="pincode mono" id="pin-code" aria-live="polite"></span>
+            <p class="small muted mb-0" id="pin-wait">
+              Waiting for you to authorise it… this page will move on by itself.
+            </p>
+          </div>
+
+          <p class="field__error" data-err="pin" hidden></p>
+        </div>
+
+        {# --- manual -------------------------------------------------------- #}
+        <div class="wizroute">
+          <div class="wizroute__head"><strong>Enter an address and token</strong></div>
+          <p class="small muted">
+            Use the server's LAN address. The token is stored server-side and is
+            never sent back to the browser or written into any page.
+          </p>
+
+          <div class="stack stack--sm">
+            <label class="field">
+              <span class="field__label">Server address</span>
+              <input class="input mono" type="text" id="manual-url"
+                     placeholder="http://192.168.1.10:32400" autocomplete="off"
+                     spellcheck="false">
+              <span class="field__hint">Scheme, host and port. HTTPS is fine if
+                the certificate is valid from inside the container.</span>
+            </label>
+            <label class="field">
+              <span class="field__label">Plex token</span>
+              <input class="input mono" type="password" id="manual-token"
+                     autocomplete="off" spellcheck="false">
+              <span class="field__hint">Plex Web → any item → <em>Get Info</em> →
+                <em>View XML</em>, then copy <span class="mono">X-Plex-Token</span>
+                out of the address bar.</span>
+            </label>
+          </div>
+
+          <p class="field__error" data-err="manual" hidden></p>
+          <button type="button" class="btn" id="manual-connect">Connect</button>
+        </div>
+      </div>
+
+      <div class="wizfoot">
+        <button type="button" class="btn" data-go="1">Back</button>
+        <span class="wizfoot__note muted small" id="step2-note">
+          Connect to continue.
+        </span>
+        <button type="button" class="btn btn--primary" data-go="4" id="step2-next" disabled>
+          Next {{ icons.icon('chevron', 15) }}
+        </button>
+      </div>
+    </div>
+  </section>
+
+  {# ================================================================ 3 server #}
+  <section class="panel wizstep" data-step="3" hidden>
+    <div class="panel__body">
+      <p class="wizstep__eyebrow caps">Step 3 of 8</p>
+      <h1 class="wizstep__title" tabindex="-1">Choose a server</h1>
+      <p class="wizstep__lede">
+        Your Plex account can see more than one server. Pick the one whose watch
+        history this instance should manage — Unwatcharr will try each address
+        Plex lists for it and keep the first that answers from inside this
+        container.
+      </p>
+
+      <div class="serverlist" id="server-list"></div>
+
+      <p class="field__error" data-err="server" hidden></p>
+
+      <div class="callout callout--info">
+        <span class="callout__icon">{{ icons.icon('info', 16) }}</span>
+        <div class="callout__body">
+          <strong>None of them reachable?</strong>
+          <div class="small muted">
+            Plex often lists only relay and public addresses. Go back and use
+            the address-and-token route with the server's LAN address instead.
+          </div>
+        </div>
+      </div>
+
+      <div class="wizfoot">
+        <button type="button" class="btn" data-go="2">Back</button>
+        <span class="wizfoot__note muted small">Choosing a server connects immediately.</span>
+      </div>
+    </div>
+  </section>
+
+  {# ================================================================= 4 users #}
+  <section class="panel wizstep" data-step="4" hidden>
+    <div class="panel__body">
+      <p class="wizstep__eyebrow caps">Step 4 of 8</p>
+      <h1 class="wizstep__title" tabindex="-1">Who runs act as</h1>
+      <p class="wizstep__lede">
+        Plex keeps watch state per account, and a token only reads and writes
+        the account it belongs to. Unwatcharr read your Plex Home, the friends
+        this server is shared with, and the accounts the server itself has seen
+        play something.
+      </p>
+
+      <div class="statgrid" id="user-stats">
+        <div class="stat-card">
+          <span class="stat-card__label">Accounts found</span>
+          <span class="stat-card__value" data-slot="u-total">0</span>
+        </div>
+        <div class="stat-card stat-card--ok">
+          <span class="stat-card__label">Ready to run</span>
+          <span class="stat-card__value" data-slot="u-linked">0</span>
+          <span class="stat-card__foot">have a working token</span>
+        </div>
+        <div class="stat-card" id="u-unlinked-card">
+          <span class="stat-card__label">Need a token</span>
+          <span class="stat-card__value" data-slot="u-unlinked">0</span>
+          <span class="stat-card__foot">skipped on every run until linked</span>
+        </div>
+      </div>
+
+      <div class="userlist" id="wiz-users"></div>
+
+      <div class="callout callout--warn" id="shared-note" hidden>
+        <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
+        <div class="callout__body">
+          <strong><span data-slot="shared-count">0</span> shared
+            account<span data-slot="shared-plural">s</span> cannot be linked from here.</strong>
+          <div class="small muted">
+            Plex lets a server owner mint tokens for Plex Home members, but not
+            for friends with their own Plex account — there is no admin route to
+            those. Finish setup, then open <strong>Users</strong> and paste a
+            token each of them generated from a Plex Web session. Until then
+            every run skips them, which is safe but silent.
+          </div>
+        </div>
+      </div>
+
+      <p class="field__error" data-err="users" hidden></p>
+
+      <div class="wizfoot">
+        <button type="button" class="btn" data-go="2">Back</button>
+        <button type="button" class="btn" id="users-refresh">
+          {{ icons.icon('users', 15) }} Re-scan from Plex
+        </button>
+        <span class="wizfoot__spacer"></span>
+        <button type="button" class="btn btn--primary" data-go="5">
+          Next {{ icons.icon('chevron', 15) }}
+        </button>
+      </div>
+    </div>
+  </section>
+
+  {# ================================================================== 5 rule #}
+  <section class="panel wizstep" data-step="5" hidden>
+    <div class="panel__body">
+      <p class="wizstep__eyebrow caps">Step 5 of 8</p>
+      <h1 class="wizstep__title" tabindex="-1">Write your first rule</h1>
+      <p class="wizstep__lede">
+        A rule is a policy: <em>unwatch anything watched more than this long ago,
+        in these libraries</em>. Nothing runs without one. You can refine it, add
+        filters and set per-user timers on the Rules page afterwards.
+      </p>
+
+      <div class="stack">
+        <label class="field">
+          <span class="field__label">Name</span>
+          <input class="input" type="text" id="r-name" maxlength="120"
+                 value="Reset old watched media">
+        </label>
+
+        <div class="field">
+          <span class="field__label">What it covers</span>
+          <div class="segmented" role="radiogroup" aria-label="Media type">
+            {% for media in schema.media_types %}
+            <label>
+              <input type="radio" name="wiz-media" value="{{ media }}"
+                     {{ 'checked' if loop.first }}>
+              <span>{{ 'Movies' if media == 'movie' else 'TV Shows' }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <span class="field__hint">One rule covers one media type. Create a
+            second rule later for the other.</span>
+        </div>
+
+        <div class="field">
+          <span class="field__label">Libraries</span>
+          <div class="checklist" id="r-libs"></div>
+          <p class="field__hint" id="r-libs-none" hidden>
+            No libraries of this type were found on the connected server.
+          </p>
+        </div>
+
+        <div class="field">
+          <span class="field__label">Unwatch it once it was last watched more than</span>
+          <div class="cluster cluster--tight">
+            <input class="input input--num" type="number" id="r-age" min="0"
+                   max="9999" value="1" aria-label="Timer value">
+            <select class="select" id="r-unit" aria-label="Timer unit" style="width:auto">
+              {% for unit in schema.age_units %}
+              <option value="{{ unit }}" {{ 'selected' if unit == 'years' }}>{{ unit }}</option>
+              {% endfor %}
+            </select>
+            <span class="muted small">ago</span>
+          </div>
+          <span class="field__hint">An item Plex has no last-watched date for is
+            always skipped rather than guessed at.</span>
+        </div>
+
+        <label class="field">
+          <span class="field__label">Only if it has been played at least</span>
+          <div class="cluster cluster--tight">
+            <input class="input input--num" type="number" id="r-views" min="1"
+                   max="99" value="1" aria-label="Minimum play count">
+            <span class="muted small">time(s)</span>
+          </div>
+        </label>
+      </div>
+
+      <p class="field__error" data-err="rule" hidden></p>
+
+      <div class="callout callout--ok" id="rule-made" hidden>
+        <span class="callout__icon">{{ icons.icon('check', 16) }}</span>
+        <div class="callout__body">
+          <strong data-slot="rule-headline">Rule created.</strong>
+          <div class="small muted">
+            It will not change anything while safe mode is on. Step 7 is where
+            that is decided.
+          </div>
+        </div>
+      </div>
+
+      <div class="wizfoot">
+        <button type="button" class="btn" data-go="4">Back</button>
+        <button type="button" class="btn btn--ghost" data-go="6">Skip for now</button>
+        <span class="wizfoot__spacer"></span>
+        <button type="button" class="btn btn--primary" id="rule-create">
+          {{ icons.icon('plus', 15) }} Create rule and continue
+        </button>
+      </div>
+    </div>
+  </section>
+
+  {# ============================================================== 6 schedule #}
+  <section class="panel wizstep" data-step="6" hidden>
+    <div class="panel__body">
+      <p class="wizstep__eyebrow caps">Step 6 of 8</p>
+      <h1 class="wizstep__title" tabindex="-1">When it runs on its own</h1>
+      <p class="wizstep__lede">
+        A scheduled run applies every enabled rule to every linked account. With
+        safe mode on it is still calculated in full and then forced to a dry
+        run, so a schedule is safe to set now.
+      </p>
+
+      <div class="stack">
+        <label class="check">
+          <input type="checkbox" id="s-enabled"
+                 {{ 'checked' if settings.schedule_enabled }}>
+          <span class="check__text">
+            Run on a schedule
+            <span class="check__hint">Turn this off to only ever run manually
+              from the dashboard.</span>
+          </span>
+        </label>
+
+        <div class="field" style="max-width: 22rem">
+          <span class="field__label">How the schedule is expressed</span>
+          <select class="select" id="s-kind">
+            {% for kind in schema.schedule_kinds %}
+            <option value="{{ kind }}" {{ 'selected' if settings.schedule_kind == kind }}>
+              {{ 'Every N hours' if kind == 'interval' else 'Cron expression' }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <label class="field" id="s-hours-field" style="max-width: 22rem">
+          <span class="field__label">Run every</span>
+          <div class="cluster cluster--tight">
+            <input class="input input--num" type="number" id="s-hours" min="1"
+                   max="168" value="{{ settings.schedule_hours }}">
+            <span class="muted small">hours</span>
+          </div>
+          <span class="field__hint">Six hours is a sensible default — the timers
+            in a rule are measured in days or years, so scanning more often only
+            costs Plex requests.</span>
+        </label>
+
+        <label class="field" id="s-cron-field" style="max-width: 22rem" hidden>
+          <span class="field__label">Cron expression</span>
+          <input class="input mono" type="text" id="s-cron"
+                 value="{{ settings.schedule_cron }}" spellcheck="false">
+          <span class="field__hint">Five fields, in the timezone this container
+            is configured with{% if status %} ({{ status.app.timezone }}){% endif %}.</span>
+        </label>
+
+        <label class="check">
+          <input type="checkbox" id="s-catchup"
+                 {{ 'checked' if settings.catch_up_missed_runs }}>
+          <span class="check__text">
+            Catch up a missed run on start-up
+            <span class="check__hint">If the container was down when a run was
+              due, run once shortly after it comes back.</span>
+          </span>
+        </label>
+      </div>
+
+      <p class="field__error" data-err="schedule" hidden></p>
+
+      <div class="wizfoot">
+        <button type="button" class="btn" data-go="5">Back</button>
+        <span class="wizfoot__spacer"></span>
+        <button type="button" class="btn btn--primary" id="schedule-save">
+          Save and continue {{ icons.icon('chevron', 15) }}
+        </button>
+      </div>
+    </div>
+  </section>
+
+  {# ============================================================= 7 safe mode #}
+  <section class="panel wizstep" data-step="7" hidden>
+    <div class="panel__body">
+      <p class="wizstep__eyebrow caps">Step 7 of 8</p>
+      <h1 class="wizstep__title" tabindex="-1">Safe mode</h1>
+      <p class="wizstep__lede">
+        This is the only setting that decides whether Unwatcharr can change your
+        Plex watch history at all. It is <strong>on</strong>, and the right way
+        to leave this screen is with it still on — turn it off later, once a
+        preview or a dry run has shown you numbers you believe.
+      </p>
+
+      <div class="moderadio" role="radiogroup" aria-label="Safe mode">
+        <label class="optioncard optioncard--safe">
+          <input type="radio" name="wiz-safe" value="on" checked>
+          <span class="optioncard__body">
+            <span class="optioncard__head">
+              {{ icons.icon('shield', 17) }}
+              <strong>Keep safe mode on</strong>
+              <span class="badge-new badge-new--warn">Recommended</span>
+            </span>
+            <span class="optioncard__text">
+              Every run — scheduled or manual — is calculated in full and then
+              forced to a dry run. History records what <em>would</em> have
+              changed, previews work normally, and Plex is never written to.
+              Nothing you do in the app can modify a watch state by accident.
+            </span>
+          </span>
+        </label>
+
+        <label class="optioncard optioncard--danger">
+          <input type="radio" name="wiz-safe" value="off">
+          <span class="optioncard__body">
+            <span class="optioncard__head">
+              {{ icons.icon('unlock', 17) }}
+              <strong>Turn safe mode off</strong>
+            </span>
+            <span class="optioncard__text">
+              Runs will really mark matching items unwatched in Plex. Changes
+              are recorded and can be undone, but undo re-scrobbles the item —
+              Plex will not restore the original watch date or play count. Only
+              choose this if you have already read a preview.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div class="callout callout--warn" id="safe-off-warning" hidden>
+        <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
+        <div class="callout__body">
+          <strong>You are about to leave setup with Plex writable.</strong>
+          <div class="small muted">
+            {% if settings.schedule_enabled %}The next scheduled run will apply
+            every enabled rule for real.{% else %}Any run you start will apply
+            every enabled rule for real.{% endif %}
+            You will be asked to confirm on the next step, and safe mode can be
+            switched back on at any time from Settings or the banner on every
+            page.
+          </div>
+        </div>
+      </div>
+
+      <p class="field__error" data-err="safe" hidden></p>
+
+      <div class="wizfoot">
+        <button type="button" class="btn" data-go="6">Back</button>
+        <span class="wizfoot__spacer"></span>
+        <button type="button" class="btn btn--primary" id="safe-continue">
+          Continue {{ icons.icon('chevron', 15) }}
+        </button>
+      </div>
+    </div>
+  </section>
+
+  {# ================================================================= 8 ready #}
+  <section class="panel wizstep" data-step="8" hidden>
+    <div class="panel__body">
+      <p class="wizstep__eyebrow caps">Step 8 of 8</p>
+      <h1 class="wizstep__title" tabindex="-1">Ready</h1>
+      <p class="wizstep__lede">
+        Here is what this instance is now set to do. Everything below can be
+        changed later without coming back to this wizard.
+      </p>
+
+      <dl class="deflist readysummary">
+        <dt>Plex server</dt><dd data-slot="done-server">—</dd>
+        <dt>Accounts linked</dt><dd data-slot="done-users">—</dd>
+        <dt>Rules</dt><dd data-slot="done-rules">—</dd>
+        <dt>Schedule</dt><dd data-slot="done-schedule">—</dd>
+        <dt>Safe mode</dt><dd data-slot="done-safe">—</dd>
+      </dl>
+
+      <div class="callout callout--warn" id="ready-no-password"
+           {% if password_set %}hidden{% endif %}>
+        <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
+        <div class="callout__body">
+          <strong>No web password is set.</strong>
+          <div class="small muted">
+            Anyone who can reach this port can change your Plex watch history.
+            Set one under <strong>Settings → Authentication</strong> before you
+            expose this container to anything beyond your own machine.
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout--info">
+        <span class="callout__icon">{{ icons.icon('preview', 16) }}</span>
+        <div class="callout__body">
+          <strong>Read a preview before you trust it.</strong>
+          <div class="small muted">
+            Open a rule and press <strong>Preview</strong>. It reads Plex and
+            writes nothing — no run is recorded and no notification is sent —
+            and it shows both what would be unwatched and every item it skipped,
+            with the reason. That is the screen that earns turning safe mode off.
+          </div>
+        </div>
+      </div>
+
+      <div class="wizfoot">
+        <button type="button" class="btn" data-go="7">Back</button>
+        <span class="wizfoot__spacer"></span>
+        <a class="btn btn--primary" href="/">
+          {{ icons.icon('dashboard', 15) }} Go to the dashboard
+        </a>
+      </div>
+    </div>
+  </section>
+
+  </div>
+</div>
+
+{# --------------------------------------------------------------- templates #}
+{# Cloned and filled with textContent. No API string is ever concatenated into
+   markup anywhere on this page. #}
+<template id="tpl-server">
+  <label class="optioncard optioncard--server">
+    <input type="radio" name="wiz-server">
+    <span class="optioncard__body">
+      <span class="optioncard__head">
+        <strong data-slot="name"></strong>
+        <span class="badge-new" data-slot="owned"></span>
+      </span>
+      <span class="optioncard__text" data-slot="addresses"></span>
+    </span>
+  </label>
+</template>
+
+<template id="tpl-user">
+  <div class="userrow">
+    <span class="userrow__kind badge-new" data-slot="kind"></span>
+    <span class="userrow__name" data-slot="name"></span>
+    <span class="userrow__state" data-slot="state"></span>
+  </div>
+</template>
+
+<template id="tpl-lib">
+  <label class="check">
+    <input type="checkbox" name="wiz-lib">
+    <span class="check__text" data-slot="title"></span>
+  </label>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+
+  var root = document.getElementById("wizard");
+  var LAST = 8;
+
+  // Everything the wizard learns as it goes. Seeded from what the server
+  // already rendered, so a revisit to /setup resumes rather than restarts.
+  var state = {
+    connected: root.dataset.connected === "true",
+    serverName: "",
+    pinId: "",
+    servers: [],
+    libraries: [],
+    users: [],
+    summary: null,
+    ruleCount: 0,
+    ruleMade: false,
+    safeMode: root.dataset.safeMode === "true",
+    step: 1
+  };
+
+  var pollTimer = null;
+
+  function $(sel, scope) { return (scope || document).querySelector(sel); }
+  function $$(sel, scope) { return Array.prototype.slice.call((scope || document).querySelectorAll(sel)); }
+
+  function stepEl(number) { return $('.wizstep[data-step="' + number + '"]'); }
+
+  function slot(scope, name, text) {
+    var el = scope.querySelector('[data-slot="' + name + '"]');
+    if (el) { el.textContent = text; }
+    return el;
+  }
+
+  // Inline, beside the control that failed. A toast would vanish while the
+  // person is still reading the form. The API's `detail` sentence is already
+  // written for a human, so it is shown verbatim.
+  function fail(key, message) {
+    var el = document.querySelector('[data-err="' + key + '"]');
+    if (!el) { return; }
+    el.textContent = message;
+    el.hidden = !message;
+  }
+  function clearErrors() { $$("[data-err]").forEach(function (el) { el.hidden = true; }); }
+
+  /* ------------------------------------------------------------ navigation */
+
+  function goto(number) {
+    state.step = number;
+    clearErrors();
+    $$(".wizstep").forEach(function (el) {
+      el.hidden = Number(el.dataset.step) !== number;
+    });
+    $$(".wizrail__item").forEach(function (el) {
+      var n = Number(el.dataset.rail);
+      el.dataset.state = n < number ? "done" : (n === number ? "current" : "todo");
+      el.setAttribute("aria-current", n === number ? "step" : "false");
+    });
+    onEnter(number);
+    var heading = stepEl(number).querySelector(".wizstep__title");
+    if (heading) { heading.focus(); }
+    window.scrollTo({ top: 0, behavior: "instant" in window ? "auto" : "auto" });
+  }
+
+  function onEnter(number) {
+    if (number === 2) { paintConnected(); }
+    if (number === 3) { paintServers(); }
+    if (number === 4) { loadUsers(); }
+    if (number === 5) { loadLibraries(); }
+    if (number === 8) { paintReady(); }
+  }
+
+  $$("[data-go]").forEach(function (btn) {
+    btn.addEventListener("click", function () { goto(Number(btn.dataset.go)); });
+  });
+
+  /* ------------------------------------------------------- step 1: v1 import */
+
+  var v1Button = document.getElementById("v1-import");
+  if (v1Button) {
+    v1Button.addEventListener("click", async function () {
+      var ok = await window.confirmDialog({
+        title: "Import from Plex-Unwatcher v1?",
+        body: [
+          "Rules, users, libraries, settings and the full change history are copied into this installation.",
+          "The v1 database is opened read-only. It is never written to, renamed or moved — it will be byte-for-byte identical afterwards, so the old installation keeps working."
+        ],
+        detail: "Your session secret is not imported. A fresh one is generated, so every signed-in session is ended once.",
+        confirmLabel: "Import"
+      });
+      if (!ok) { return; }
+
+      fail("v1", "");
+      window.busy(v1Button, true);
+      try {
+        var result = await window.api("/api/setup/v1-import", { method: "POST", body: {} });
+        var i = result.imported;
+        var done = document.getElementById("v1-done");
+        slot(done, "v1-headline",
+          "Imported " + i.rules + " rule(s), " + i.users + " user(s) and " +
+          i.runs + " run(s) from Plex-Unwatcher v1.");
+        slot(done, "v1-detail",
+          "The source database was only read — it is unchanged. A fresh session " +
+          "secret was generated, so any other signed-in session has ended.");
+        done.hidden = false;
+        $$(".v1card").forEach(function (el) { el.hidden = true; });
+
+        await refreshStatus();
+        window.toast("Imported from Plex-Unwatcher v1.", "ok");
+        goto(state.connected ? 4 : 2);
+      } catch (err) {
+        fail("v1", window.errorText(err));
+      } finally {
+        window.busy(v1Button, false);
+      }
+    });
+  }
+
+  /* ---------------------------------------------------------- step 2: connect */
+
+  async function refreshStatus() {
+    try {
+      var status = await window.api("/api/status");
+      state.connected = !!(status.plex && status.plex.connected);
+      state.serverName = (status.plex && status.plex.server_name) || "";
+      state.ruleCount = (status.stats && status.stats.rules_enabled) || 0;
+      state.safeMode = !!status.safe_mode;
+      root.dataset.connected = state.connected ? "true" : "false";
+    } catch (err) { /* the step will simply show as not connected */ }
+    paintConnected();
+  }
+
+  function paintConnected() {
+    var banner = document.getElementById("already-connected");
+    var next = document.getElementById("step2-next");
+    var note = document.getElementById("step2-note");
+    if (banner) {
+      banner.hidden = !state.connected;
+      if (state.connected) { slot(banner, "server-name", state.serverName || "Plex"); }
+    }
+    if (next) { next.disabled = !state.connected; }
+    if (note) {
+      note.textContent = state.connected
+        ? "Connected. You can move on."
+        : "Connect to continue.";
+    }
+  }
+
+  var pinStart = document.getElementById("pin-start");
+  pinStart.addEventListener("click", async function () {
+    fail("pin", "");
+    window.busy(pinStart, true);
+    try {
+      var pin = await window.api("/api/setup/pin", { method: "POST" });
+      var link = document.getElementById("pin-link");
+      link.href = pin.link_url;
+      link.textContent = pin.link_url;
+      document.getElementById("pin-code").textContent = pin.code;
+      document.getElementById("pin-box").hidden = false;
+      if (pollTimer) { clearInterval(pollTimer); }
+      pollTimer = setInterval(function () { pollPin(pin.id); }, 2000);
+    } catch (err) {
+      fail("pin", window.errorText(err));
+    } finally {
+      window.busy(pinStart, false);
+    }
+  });
+
+  async function pollPin(pinId) {
+    try {
+      var result = await window.api("/api/setup/pin/" + encodeURIComponent(pinId));
+      if (!result.authorised) { return; }
+      clearInterval(pollTimer);
+      pollTimer = null;
+      document.getElementById("pin-wait").textContent = "Authorised.";
+      // `pin_id` is a lookup key for a token held server-side. The token itself
+      // never reaches the browser.
+      state.pinId = result.pin_id;
+      state.servers = result.servers || [];
+      if (!state.servers.length) {
+        fail("pin", "That Plex account has no servers on it. Sign in with the account that owns the server.");
+        return;
+      }
+      goto(3);
+    } catch (err) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      fail("pin", window.errorText(err));
+    }
+  }
+
+  var manualButton = document.getElementById("manual-connect");
+  manualButton.addEventListener("click", async function () {
+    var url = document.getElementById("manual-url").value.trim();
+    var token = document.getElementById("manual-token").value.trim();
+    fail("manual", "");
+    if (!url || !token) {
+      fail("manual", "Enter both a server address and a token.");
+      return;
+    }
+    window.busy(manualButton, true);
+    try {
+      var result = await window.api("/api/setup/manual", {
+        method: "POST", body: { url: url, token: token }
+      });
+      afterConnect(result);
+    } catch (err) {
+      fail("manual", window.errorText(err));
+    } finally {
+      window.busy(manualButton, false);
+    }
+  });
+
+  function afterConnect(result) {
+    state.connected = true;
+    state.serverName = result.server_name || "Plex";
+    root.dataset.connected = "true";
+    document.getElementById("manual-token").value = "";
+    window.toast(
+      "Connected to " + state.serverName + " — " + result.library_count +
+      " library(ies), " + result.total + " account(s).", "ok");
+    goto(4);
+  }
+
+  /* ----------------------------------------------------------- step 3: server */
+
+  function paintServers() {
+    var host = document.getElementById("server-list");
+    host.innerHTML = "";
+    var tpl = document.getElementById("tpl-server");
+    state.servers.forEach(function (server, index) {
+      var node = tpl.content.cloneNode(true);
+      var input = node.querySelector("input");
+      input.value = server.machine_id;
+      if (index === 0) { input.checked = true; }
+      slot(node, "name", server.name);
+      var owned = slot(node, "owned", server.owned ? "Owned" : "Shared with you");
+      if (owned) { owned.className = "badge-new " + (server.owned ? "badge-new--brand" : ""); }
+      var count = (server.addresses || []).length;
+      slot(node, "addresses",
+        count + " address" + (count === 1 ? "" : "es") +
+        " published by Plex — each is tried in turn until one answers from this container.");
+      var label = node.querySelector(".optioncard");
+      label.addEventListener("click", function () {
+        window.setTimeout(function () { chooseServer(server, label); }, 0);
+      });
+      host.appendChild(node);
+    });
+  }
+
+  async function chooseServer(server, label) {
+    fail("server", "");
+    label.dataset.busy = "true";
+    try {
+      var result = await window.api("/api/setup/server", {
+        method: "POST",
+        body: { pin_id: state.pinId, machine_id: server.machine_id, name: server.name }
+      });
+      afterConnect(result);
+    } catch (err) {
+      fail("server", window.errorText(err));
+    } finally {
+      delete label.dataset.busy;
+    }
+  }
+
+  /* ------------------------------------------------------------ step 4: users */
+
+  var KIND_LABEL = {
+    owner: "Owner", home: "Home user", managed: "Managed user", shared: "Shared user"
+  };
+
+  async function loadUsers() {
+    fail("users", "");
+    try {
+      var result = await window.api("/api/users");
+      state.users = result.users || [];
+      state.summary = result.summary || null;
+      paintUsers();
+    } catch (err) {
+      fail("users", window.errorText(err));
+    }
+  }
+
+  function paintUsers() {
+    var stats = document.getElementById("user-stats");
+    var summary = state.summary || { total: 0, linked: 0, unlinked: 0, shared_unlinked: 0 };
+    slot(stats, "u-total", String(summary.total));
+    slot(stats, "u-linked", String(summary.linked));
+    slot(stats, "u-unlinked", String(summary.unlinked));
+    document.getElementById("u-unlinked-card").className =
+      "stat-card" + (summary.unlinked ? " stat-card--warn" : "");
+
+    var host = document.getElementById("wiz-users");
+    host.innerHTML = "";
+    var tpl = document.getElementById("tpl-user");
+    state.users.forEach(function (user) {
+      var node = tpl.content.cloneNode(true);
+      var kind = slot(node, "kind", KIND_LABEL[user.kind] || user.kind);
+      if (kind) { kind.className = "userrow__kind badge-new badge-new--" + (user.kind === "owner" ? "brand" : "info"); }
+      slot(node, "name", user.title);
+      var stateEl = slot(node, "state",
+        user.linked ? "Linked — runs can act as them"
+          : (user.auto_linkable ? "Not linked — Users page can mint a token"
+            : "Not linked — they must paste a token"));
+      if (stateEl) {
+        stateEl.className = "userrow__state " + (user.linked ? "text-ok" : "text-warn");
+      }
+      host.appendChild(node);
+    });
+
+    var sharedNote = document.getElementById("shared-note");
+    sharedNote.hidden = !summary.shared_unlinked;
+    if (summary.shared_unlinked) {
+      slot(sharedNote, "shared-count", String(summary.shared_unlinked));
+      slot(sharedNote, "shared-plural", summary.shared_unlinked === 1 ? "" : "s");
+    }
+  }
+
+  var usersRefresh = document.getElementById("users-refresh");
+  usersRefresh.addEventListener("click", async function () {
+    fail("users", "");
+    window.busy(usersRefresh, true);
+    try {
+      var result = await window.api("/api/users/refresh", { method: "POST" });
+      state.users = result.users || [];
+      state.summary = result.summary || null;
+      paintUsers();
+      window.toast("Re-read " + (state.summary ? state.summary.total : 0) + " account(s) from Plex.", "ok");
+    } catch (err) {
+      fail("users", window.errorText(err));
+    } finally {
+      window.busy(usersRefresh, false);
+    }
+  });
+
+  /* ------------------------------------------------------------- step 5: rule */
+
+  async function loadLibraries() {
+    fail("rule", "");
+    try {
+      var result = await window.api("/api/libraries");
+      state.libraries = result.libraries || [];
+      paintLibraries();
+    } catch (err) {
+      fail("rule", window.errorText(err));
+    }
+  }
+
+  function currentMedia() {
+    var picked = document.querySelector('input[name="wiz-media"]:checked');
+    return picked ? picked.value : "movie";
+  }
+
+  function paintLibraries() {
+    var host = document.getElementById("r-libs");
+    var media = currentMedia();
+    var matching = state.libraries.filter(function (lib) { return lib.type === media; });
+    host.innerHTML = "";
+    var tpl = document.getElementById("tpl-lib");
+    matching.forEach(function (lib, index) {
+      var node = tpl.content.cloneNode(true);
+      var input = node.querySelector("input");
+      input.value = String(lib.id);
+      if (index === 0) { input.checked = true; }
+      slot(node, "title", lib.title);
+      host.appendChild(node);
+    });
+    document.getElementById("r-libs-none").hidden = matching.length > 0;
+  }
+
+  $$('input[name="wiz-media"]').forEach(function (input) {
+    input.addEventListener("change", paintLibraries);
+  });
+
+  var ruleButton = document.getElementById("rule-create");
+  ruleButton.addEventListener("click", async function () {
+    fail("rule", "");
+    var libraryIds = $$('#r-libs input[name="wiz-lib"]:checked').map(function (el) {
+      return Number(el.value);
+    });
+    if (!libraryIds.length) {
+      fail("rule", "Select at least one library for this rule to scan.");
+      return;
+    }
+    var payload = {
+      name: document.getElementById("r-name").value.trim(),
+      media_type: currentMedia(),
+      library_ids: libraryIds,
+      age_value: document.getElementById("r-age").value,
+      age_unit: document.getElementById("r-unit").value,
+      min_view_count: document.getElementById("r-views").value,
+      enabled: true
+    };
+    window.busy(ruleButton, true);
+    try {
+      var rule = await window.api("/api/rules", { method: "POST", body: payload });
+      state.ruleMade = true;
+      state.ruleCount += 1;
+      var made = document.getElementById("rule-made");
+      slot(made, "rule-headline", "Created “" + rule.name + "”.");
+      made.hidden = false;
+      window.toast("Rule created.", "ok");
+      goto(6);
+    } catch (err) {
+      fail("rule", window.errorText(err));
+    } finally {
+      window.busy(ruleButton, false);
+    }
+  });
+
+  /* --------------------------------------------------------- step 6: schedule */
+
+  var kindSelect = document.getElementById("s-kind");
+  function syncScheduleKind() {
+    var kind = kindSelect.value;
+    document.getElementById("s-hours-field").hidden = kind !== "interval";
+    document.getElementById("s-cron-field").hidden = kind !== "cron";
+  }
+  kindSelect.addEventListener("change", syncScheduleKind);
+  syncScheduleKind();
+
+  var scheduleButton = document.getElementById("schedule-save");
+  scheduleButton.addEventListener("click", async function () {
+    fail("schedule", "");
+    window.busy(scheduleButton, true);
+    try {
+      await window.api("/api/settings", {
+        method: "POST",
+        body: {
+          schedule_enabled: document.getElementById("s-enabled").checked,
+          schedule_kind: kindSelect.value,
+          schedule_hours: document.getElementById("s-hours").value,
+          schedule_cron: document.getElementById("s-cron").value,
+          catch_up_missed_runs: document.getElementById("s-catchup").checked
+        }
+      });
+      goto(7);
+    } catch (err) {
+      fail("schedule", window.errorText(err));
+    } finally {
+      window.busy(scheduleButton, false);
+    }
+  });
+
+  /* -------------------------------------------------------- step 7: safe mode */
+
+  function safeChoice() {
+    var picked = document.querySelector('input[name="wiz-safe"]:checked');
+    return picked ? picked.value : "on";
+  }
+
+  $$('input[name="wiz-safe"]').forEach(function (input) {
+    input.addEventListener("change", function () {
+      document.getElementById("safe-off-warning").hidden = safeChoice() !== "off";
+    });
+  });
+
+  var safeButton = document.getElementById("safe-continue");
+  safeButton.addEventListener("click", async function () {
+    fail("safe", "");
+    var wantSafe = safeChoice() === "on";
+
+    if (!wantSafe) {
+      var ok = await window.confirmDialog({
+        title: "Turn safe mode off?",
+        body: [
+          "Runs will really mark matching items unwatched in Plex, for every linked account a rule reaches.",
+          "Changes are recorded in History and can be undone, but undo re-scrobbles the item — Plex will not restore the original watch date or play count."
+        ],
+        detail: "Safe mode can be switched back on at any time from Settings, or from the banner at the top of every page.",
+        confirmLabel: "Turn safe mode off",
+        tone: "danger"
+      });
+      if (!ok) { return; }
+    }
+
+    // Safe mode already defaults to on, so only an actual change is sent.
+    if (wantSafe === state.safeMode) { goto(8); return; }
+
+    window.busy(safeButton, true);
+    try {
+      await window.api("/api/settings/safe-mode", {
+        method: "POST",
+        body: { enabled: wantSafe, confirm: true }
+      });
+      state.safeMode = wantSafe;
+      root.dataset.safeMode = wantSafe ? "true" : "false";
+      goto(8);
+    } catch (err) {
+      fail("safe", window.errorText(err));
+    } finally {
+      window.busy(safeButton, false);
+    }
+  });
+
+  /* ------------------------------------------------------------ step 8: ready */
+
+  function scheduleSummary(schedule) {
+    var repeat = schedule.kind === "cron"
+      ? "cron " + schedule.cron
+      : "every " + schedule.hours + " hour" + (Number(schedule.hours) === 1 ? "" : "s");
+    return schedule.next_run_at ? repeat + " · next at " + schedule.next_run_at : repeat;
+  }
+
+  async function paintReady() {
+    var panel = stepEl(8);
+    try {
+      var status = await window.api("/api/status");
+      state.safeMode = !!status.safe_mode;
+
+      slot(panel, "done-server", status.plex.connected
+        ? (status.plex.server_name || "Connected") + " · " +
+          status.stats.libraries + " library(ies)"
+        : "Not connected — runs cannot start");
+
+      slot(panel, "done-users",
+        status.users.linked + " of " + status.users.total + " account(s) linked" +
+        (status.users.unlinked
+          ? " · " + status.users.unlinked + " still skipped on every run"
+          : ""));
+
+      slot(panel, "done-rules", status.stats.rules_total
+        ? status.stats.rules_enabled + " enabled of " + status.stats.rules_total + " rule(s)"
+        : "No rules yet — nothing will happen until one exists");
+
+      slot(panel, "done-schedule", status.schedule.enabled
+        ? scheduleSummary(status.schedule)
+        : "Manual runs only — nothing starts on its own");
+
+      slot(panel, "done-safe", state.safeMode
+        ? "On — every run is forced to a dry run and Plex is never written to"
+        : "OFF — runs can modify Plex watch state");
+      var safeCell = panel.querySelector('[data-slot="done-safe"]');
+      if (safeCell) { safeCell.className = state.safeMode ? "text-ok" : "text-danger"; }
+    } catch (err) {
+      slot(panel, "done-server", window.errorText(err));
+    }
+  }
+
+  /* ------------------------------------------------------------------ resume */
+
+  // A revisit to /setup after it is complete should not make someone click
+  // through a connection they already have.
+  goto(state.connected && root.dataset.complete === "true" ? 2 : 1);
+})();
+</script>
+{% endblock %}

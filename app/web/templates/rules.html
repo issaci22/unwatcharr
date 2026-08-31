@@ -1,0 +1,1080 @@
+{% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% import "_empty.html" as blank %}
+{% block title %}Rules — {{ app_name }}{% endblock %}
+
+{#- A rule is a policy, not a settings form. The list reads as a sentence
+    ("unwatch anything watched more than 30 days ago in Movies"), then the
+    facts that qualify it, then what it did on the last run.
+
+    The editor's markup is server-rendered inside the dialog rather than built
+    from JS strings: real labels, real fieldsets, no escaping bugs, and the
+    vocabulary comes from `schema` so nothing is hardcoded. JS only fills the
+    fields, toggles the TV-only controls, and reads the values back. -#}
+
+{% set linked_users = users | selectattr('linked') | list %}
+
+{% block content %}
+<div class="pagehead">
+  <div class="pagehead__text">
+    <h1 class="pagehead__title">Rules</h1>
+    <p class="pagehead__sub">
+      A rule decides when watched media goes back to unwatched. Nothing happens
+      to media no rule covers.
+    </p>
+  </div>
+  <div class="pagehead__actions">
+    <button type="button" class="btn"
+            onclick="act('/api/libraries/refresh', {method:'POST', source:this}, 'Libraries refreshed.')">
+      {{ icons.icon('server', 15) }} Refresh libraries
+    </button>
+    <button type="button" class="btn btn--primary" onclick="openEditor(null)"
+            {% if not libraries %}disabled title="Refresh libraries from Plex first"{% endif %}>
+      {{ icons.icon('plus', 15) }} New rule
+    </button>
+  </div>
+</div>
+
+{% if not libraries %}
+<div class="callout callout--warn">
+  <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
+  <div class="callout__body">
+    <strong>No Plex libraries are known yet.</strong> A rule has to point at
+    libraries, so refresh them from Plex before creating one.
+  </div>
+</div>
+{% endif %}
+
+{% if not rules %}
+<section class="panel">
+  {% call blank.state('rules', 'No rules yet',
+      'Nothing happens on a run until a rule exists. A rule names a timer
+       (“30 days since it was last watched”), the libraries it covers, and who
+       it applies to.',
+      ['Press <strong>New rule</strong> and give it a name.' | safe,
+       'Pick <strong>Movies</strong> or <strong>TV Shows</strong>, then tick the libraries it should scan. One rule covers one media type.' | safe,
+       'Set the timer — how long since an item was last watched before it is reset.' | safe,
+       'Press <strong>Preview</strong> on the finished rule. It reads Plex, writes nothing, and lists every item it would change and every item it skipped.' | safe]) %}
+    <button type="button" class="btn btn--primary" onclick="openEditor(null)"
+            {% if not libraries %}disabled{% endif %}>
+      {{ icons.icon('plus', 15) }} Create a rule
+    </button>
+  {% endcall %}
+</section>
+{% endif %}
+
+{% for rule in rules %}
+{% set fired = last_pass.get(rule.id) %}
+<article class="panel rulecard {{ '' if rule.enabled else 'rulecard--off' }}">
+  <div class="rulecard__head">
+    <span class="dot {{ 'dot--ok' if rule.enabled else '' }}" style="margin-top: 7px"
+          title="{{ 'Enabled' if rule.enabled else 'Disabled' }}"></span>
+    <div class="rulecard__heading">
+      <h2 class="rulecard__name">{{ rule.name }}</h2>
+      <div class="rulecard__badges">
+        {% if rule.enabled %}
+        <span class="badge-new badge-new--ok">{{ icons.icon('check', 11) }} Enabled</span>
+        {% else %}
+        <span class="badge-new badge-new--warn">Disabled</span>
+        {% endif %}
+        <span class="badge-new badge-new--info">
+          {{ 'Movies' if rule.media_type == 'movie' else 'TV Shows' }}</span>
+        {% if rule.media_type == 'show' and rule.tv_scope == 'series' %}
+        <span class="badge-new">Whole series</span>
+        {% endif %}
+        {% if rule.clear_progress %}
+        <span class="badge-new badge-new--warn">Clears resume point</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="panel__body">
+    <p class="policy mb-0">
+      Unwatch anything watched more than <strong>{{ rule | threshold }}</strong> ago in
+      {% if rule.libraries %}
+      <strong>{{ rule.libraries | map(attribute='title') | join(', ') }}</strong>
+      {% else %}
+      <span class="text-danger">no libraries — this rule can never match anything</span>
+      {% endif %}
+      {%- if rule.min_view_count > 1 %}, watched at least {{ rule.min_view_count }} times{% endif %}.
+    </p>
+
+    <div class="factgrid">
+      {% if not single_user %}
+      <div class="fact">
+        <span class="fact__label">Applies to</span>
+        <span class="fact__value">
+          {% if rule.excluded_users or rule.custom_users %}
+            {% if rule.custom_users %}{{ rule.custom_users }} user{{ '' if rule.custom_users == 1 else 's' }}
+            with their own timer{% endif %}
+            {%- if rule.custom_users and rule.excluded_users %} · {% endif %}
+            {%- if rule.excluded_users %}{{ rule.excluded_users }} excluded{% endif %}
+          {% else %}
+          Every linked user
+          {% endif %}
+        </span>
+      </div>
+      {% endif %}
+
+      <div class="fact">
+        <span class="fact__label">Leaves alone</span>
+        <span class="fact__value">
+          {% set safety = [] %}
+          {% if rule.skip_in_progress %}{% set _ = safety.append('anything part-watched') %}{% endif %}
+          {% if rule.skip_now_playing %}{% set _ = safety.append('anything playing now') %}{% endif %}
+          {% if rule.media_type == 'show' and rule.require_series_complete %}
+            {% set _ = safety.append('unfinished series') %}{% endif %}
+          {% if safety %}{{ safety | join(', ') | capitalize }}{% else %}
+          <span class="muted">Nothing extra — only the timer applies</span>{% endif %}
+        </span>
+      </div>
+
+      {% if rule.include_filters %}
+      <div class="fact">
+        <span class="fact__label">Only if it matches</span>
+        <span class="fact__value chipset">
+          {% for f in rule.include_filters %}
+          <span class="chip chip--include">{{ f.field }}: {{ f.value }}</span>
+          {% endfor %}
+        </span>
+      </div>
+      {% endif %}
+
+      {% if rule.exclude_filters %}
+      <div class="fact">
+        <span class="fact__label">Never touch</span>
+        <span class="fact__value chipset">
+          {% for f in rule.exclude_filters %}
+          <span class="chip chip--exclude">{{ f.field }}: {{ f.value }}</span>
+          {% endfor %}
+        </span>
+      </div>
+      {% endif %}
+
+      <div class="fact">
+        <span class="fact__label">Next run</span>
+        <span class="fact__value">
+          {% if not rule.enabled %}
+          <span class="muted">Disabled — it will not run</span>
+          {% elif status.schedule.enabled and status.schedule.next_run_at %}
+          {{ status.schedule.next_run_at | until }}
+          {% if safe_mode %}<span class="text-warn">(as a dry run)</span>{% endif %}
+          {% else %}
+          <span class="muted">Only when you press Run</span>
+          {% endif %}
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="rulecard__foot">
+    {# What it actually did last time — the reason to trust the sentence above. #}
+    <span class="rulecard__lastrun">
+      {% if fired %}
+        Last ran {{ fired.relative }}{% if fired.users > 1 %} across {{ fired.users }} users{% endif %}:
+        scanned {{ fired.scanned }}, matched {{ fired.matched }}{% if fired.mode == 'dry' %},
+        changed nothing (dry run){% elif fired.applied %}, unwatched {{ fired.applied }}{% endif %}.
+      {% elif status.last_run %}
+        <span class="faint">Has not run recently.</span>
+      {% else %}
+        <span class="faint">Has not run yet.</span>
+      {% endif %}
+    </span>
+    <span class="spacer"></span>
+
+    {% if linked_users %}
+    <div class="cluster cluster--tight">
+      {% if linked_users | length > 1 %}
+      <label class="sr-only" for="preview-user-{{ rule.id }}">Preview as</label>
+      <select class="select input--sm" id="preview-user-{{ rule.id }}" style="width: auto">
+        {% for user in linked_users %}
+        <option value="{{ user.id }}">{{ user.title }}</option>
+        {% endfor %}
+      </select>
+      {% else %}
+      <input type="hidden" id="preview-user-{{ rule.id }}" value="{{ linked_users[0].id }}">
+      {% endif %}
+      <button type="button" class="btn btn--sm" onclick="preview({{ rule.id }}, this)">
+        {{ icons.icon('preview', 14) }} Preview
+      </button>
+    </div>
+    {% endif %}
+
+    <button type="button" class="btn btn--sm" onclick="startRun('dry', [{{ rule.id }}], this)">
+      Dry run
+    </button>
+    <button type="button" class="btn btn--sm" onclick="openEditor({{ rule.id }})">Edit</button>
+    <button type="button" class="btn btn--sm"
+            onclick="act('/api/rules/{{ rule.id }}/toggle', {method:'POST', source:this}, '{{ 'Rule disabled.' if rule.enabled else 'Rule enabled.' }}')">
+      {{ 'Disable' if rule.enabled else 'Enable' }}
+    </button>
+    {# The name travels in a data attribute, not inside the onclick string:
+       `| tojson` emits raw double quotes, which end the attribute early on any
+       name containing one. Autoescaping handles data-* correctly. #}
+    <button type="button" class="btn btn--sm btn--danger"
+            data-rule-id="{{ rule.id }}" data-rule-name="{{ rule.name }}"
+            onclick="deleteRule(this)">Delete</button>
+  </div>
+</article>
+{% endfor %}
+
+{# ------------------------------------------------------------------ editor #}
+<dialog id="editor" class="dialog--wide" aria-labelledby="editor-title">
+  <form id="rule-form" method="dialog">
+    <div class="dialog__head">
+      <h2 class="dialog__title" id="editor-title">New rule</h2>
+    </div>
+
+    <div class="dialog__body">
+      <div class="callout callout--err" id="editor-error" hidden>
+        <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
+        <div class="callout__body" id="editor-error-text"></div>
+      </div>
+
+      {# --- the four decisions that define a rule, always visible --------- #}
+      <div class="formsection">
+        <div class="field">
+          <label class="field__label" for="f-name">Rule name</label>
+          <input class="input" type="text" id="f-name" maxlength="120" required
+                 placeholder="Movies — 30 day reset">
+          <span class="field__hint">Something you will recognise in a run summary.</span>
+        </div>
+      </div>
+
+      <div class="formsection">
+        <div class="formsection__title">What it covers</div>
+        <p class="formsection__hint mb-0">
+          One rule covers one media type. To do both, create a second rule.
+        </p>
+        <div class="segmented" role="radiogroup" aria-label="Media type">
+          {% for media in schema.media_types %}
+          <label>
+            <input type="radio" name="media_type" value="{{ media }}"
+                   {{ 'checked' if loop.first }} onchange="syncMediaType()">
+            <span>{{ 'Movies' if media == 'movie' else 'TV Shows' }}</span>
+          </label>
+          {% endfor %}
+        </div>
+
+        <div class="field" style="margin-top: var(--sp-5)">
+          <span class="field__label">Libraries</span>
+          <div class="checklist" id="f-libs">
+            {% for library in libraries %}
+            <label class="check libcheck" data-type="{{ library.type }}">
+              <input type="checkbox" name="library" value="{{ library.id }}">
+              <span class="check__text">{{ library.title }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <span class="field__hint" id="f-libs-empty" hidden>
+            No libraries of this type are known. Refresh libraries from Plex.
+          </span>
+        </div>
+      </div>
+
+      <div class="formsection">
+        <div class="formsection__title">When it triggers</div>
+        <div class="formrow">
+          <div class="field field--fixed">
+            <label class="field__label" for="f-age">Unwatch after</label>
+            <input class="input input--num" type="number" id="f-age" min="0" max="9999" value="90">
+          </div>
+          <div class="field field--fixed">
+            <label class="field__label" for="f-unit">Unit</label>
+            <select class="select" id="f-unit">
+              {% for unit in schema.age_units %}<option value="{{ unit }}">{{ unit }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="field field--fixed">
+            <label class="field__label" for="f-views">Watched at least</label>
+            <input class="input input--num" type="number" id="f-views" min="1" max="99" value="1">
+          </div>
+        </div>
+        <span class="field__hint" style="margin-top: var(--sp-3); display: block">
+          Measured from when that user last watched it. An item Plex has no
+          watch date for is always left alone. Zero means “as soon as it is watched”.
+        </span>
+      </div>
+
+      {# --- everything else, folded away --------------------------------- #}
+      <details class="disclosure">
+        <summary>
+          {{ icons.icon('shield', 15) }} Safety and behaviour
+          <span class="disclosure__hint">what it refuses to touch</span>
+        </summary>
+        <div class="disclosure__body">
+          <label class="check">
+            <input type="checkbox" id="f-progress" checked>
+            <span class="check__text">Skip anything part-watched
+              <span class="check__hint">Leaves an item with a resume point alone.</span></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="f-playing" checked>
+            <span class="check__text">Skip anything playing right now
+              <span class="check__hint">Never changes an item while someone is streaming it.</span></span>
+          </label>
+          <label class="check" id="f-series-wrap">
+            <input type="checkbox" id="f-series" checked>
+            <span class="check__text">Only touch a series once every episode is watched
+              <span class="check__hint">A part-watched show keeps its progress.</span></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="f-clear">
+            <span class="check__text">Also clear the resume point
+              <span class="check__hint">Off by default: it discards how far in someone was.</span></span>
+          </label>
+
+          <div class="field" id="f-scope-wrap" style="margin-top: var(--sp-5)">
+            <label class="field__label" for="f-scope">TV scope</label>
+            <select class="select" id="f-scope">
+              {% for scope in schema.tv_scopes %}
+              <option value="{{ scope }}">
+                {{ 'Unwatch episode by episode' if scope == 'episodes' else 'Unwatch the whole series in one call' }}
+              </option>
+              {% endfor %}
+            </select>
+            <span class="field__hint">Whole-series only collapses when every episode matched.</span>
+          </div>
+        </div>
+      </details>
+
+      <details class="disclosure">
+        <summary>
+          {{ icons.icon('rules', 15) }} Filters
+          <span class="disclosure__hint">collections, labels, genres, titles</span>
+        </summary>
+        <div class="disclosure__body">
+          <div class="field">
+            <span class="field__label">Only include items matching</span>
+            <div id="include-rows"></div>
+            <button type="button" class="btn btn--sm" onclick="addFilter('include')">
+              {{ icons.icon('plus', 13) }} Add include filter</button>
+            <span class="field__hint" style="margin-top: var(--sp-3); display: block">
+              Leave empty to consider everything in the libraries above.</span>
+          </div>
+
+          <div class="field" style="margin-top: var(--sp-6)">
+            <span class="field__label">Never touch items matching</span>
+            <div id="exclude-rows"></div>
+            <button type="button" class="btn btn--sm" onclick="addFilter('exclude')">
+              {{ icons.icon('plus', 13) }} Add exclude filter</button>
+            <span class="field__hint" style="margin-top: var(--sp-3); display: block">
+              An exclude always wins over an include.</span>
+          </div>
+        </div>
+      </details>
+
+      {% if not single_user %}
+      <details class="disclosure">
+        <summary>
+          {{ icons.icon('users', 15) }} Per-user timers
+          <span class="disclosure__hint">give someone a different timer, or skip them</span>
+        </summary>
+        <div class="disclosure__body">
+          <table class="overrides" id="f-overrides">
+            <thead>
+              <tr><th>In this rule</th><th>User</th><th>Their timer</th></tr>
+            </thead>
+            <tbody>
+              {% for user in users %}
+              <tr>
+                <td>
+                  <input type="checkbox" class="ov-enabled" data-user="{{ user.id }}" checked
+                         aria-label="Include {{ user.title }} in this rule">
+                </td>
+                <td>
+                  {{ user.title }}
+                  {% if not user.linked %}<span class="badge-new badge-new--warn">no token</span>{% endif %}
+                </td>
+                <td>
+                  <div class="cluster cluster--tight">
+                    <input class="input input--sm input--num ov-value" type="number" min="0" max="9999"
+                           data-user="{{ user.id }}" placeholder="default"
+                           aria-label="{{ user.title }}'s timer">
+                    <select class="select input--sm ov-unit" data-user="{{ user.id }}"
+                            aria-label="{{ user.title }}'s timer unit" style="width: auto">
+                      {% for unit in schema.age_units %}<option value="{{ unit }}">{{ unit }}</option>{% endfor %}
+                    </select>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <span class="field__hint" style="margin-top: var(--sp-4); display: block">
+            Blank uses the rule's own timer. Unticking someone leaves their watch
+            history alone for this rule only.
+          </span>
+        </div>
+      </details>
+      {% else %}
+      <p class="small muted" style="margin-top: var(--sp-5)">
+        You are the only account on this server, so there are no per-user timers
+        to set. They appear as soon as someone joins your Plex Home.
+      </p>
+      {% endif %}
+    </div>
+
+    <div class="dialog__foot">
+      <span class="small faint" style="margin-right: auto">Nothing is saved until you press Save.</span>
+      <button type="button" class="btn" onclick="document.getElementById('editor').close()">Cancel</button>
+      <button type="button" class="btn btn--primary" id="f-save" onclick="saveRule(this)">Save rule</button>
+    </div>
+  </form>
+</dialog>
+
+{# One filter row, cloned by JS. Kept as markup so there is no HTML in strings. #}
+<template id="tpl-filter">
+  <div class="filterrow">
+    <select class="select filter-field" aria-label="Filter field">
+      {% for field in schema.filter_fields %}
+      <option value="{{ field }}">{{ 'Title contains' if field == 'title' else field | capitalize }}</option>
+      {% endfor %}
+    </select>
+    <input class="input filter-value" type="text" placeholder="value" aria-label="Filter value">
+    <button type="button" class="btn btn--sm btn--ghost filter-remove" aria-label="Remove filter">
+      {{ icons.icon('close', 14) }}
+    </button>
+  </div>
+</template>
+
+{#- ------------------------------------------------------------------ preview
+    The preview dialog exists to earn enough trust that someone is willing to
+    turn safe mode off. So it does three things, in this order: it says what a
+    preview cannot do, it shows what would change with every fact that decision
+    rested on, and it shows what was left alone and why — the half v1 never had.
+
+    All of the chrome below is server-rendered. The script only fills slots and
+    clones the two row templates, so no user-controlled text is ever
+    concatenated into markup. -#}
+<dialog id="preview-dialog" class="dialog--preview" aria-labelledby="preview-title">
+  <div class="dialog__head">
+    <div class="pvhead">
+      <h2 class="dialog__title" id="preview-title">Preview</h2>
+      <p class="pvhead__sub" id="preview-sub">Asking Plex what this rule matches right now.</p>
+    </div>
+    <span class="badge-new badge-new--info pvhead__badge">
+      {{ icons.icon('shield', 12) }} Read only
+    </span>
+  </div>
+
+  <div class="dialog__body">
+    <div class="callout callout--info">
+      <span class="callout__icon">{{ icons.icon('shield', 16) }}</span>
+      <div class="callout__body">
+        <strong>This preview changes nothing.</strong>
+        <div class="small muted">
+          It reads your library with this user's own Plex token and evaluates the
+          rule in memory. No watch state is touched, no run is recorded in
+          history, and no notification is sent — whatever safe mode is set to.
+        </div>
+      </div>
+    </div>
+
+    <div id="preview-state" aria-live="polite"></div>
+
+    <div id="preview-result" hidden>
+      <div class="pvstats">
+        <div class="stat-card stat-card--warn">
+          <span class="stat-card__label">Would become unwatched</span>
+          <span class="stat-card__value" data-slot="matched">—</span>
+          <p class="stat-card__foot">If this rule ran with safe mode off</p>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card__label">Left alone</span>
+          <span class="stat-card__value" data-slot="skipped">—</span>
+          <p class="stat-card__foot" data-slot="skipped-foot">Protected by a gate below</p>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card__label">Scanned</span>
+          <span class="stat-card__value" data-slot="scanned">—</span>
+          <p class="stat-card__foot" data-slot="libraries">&nbsp;</p>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card__label">Timer</span>
+          <span class="stat-card__value stat-card__value--text" data-slot="threshold">—</span>
+          <p class="stat-card__foot" data-slot="as-user">&nbsp;</p>
+        </div>
+      </div>
+
+      <div class="pvgrid">
+        <section class="pvcol" aria-labelledby="pv-matched-h">
+          <header class="pvcol__head">
+            <h3 class="pvcol__title" id="pv-matched-h">
+              {{ icons.icon('unlock', 15) }} Matched candidates
+            </h3>
+            <span class="pvcol__count" data-slot="matched-count">0</span>
+          </header>
+          <p class="pvcol__lede">
+            Each of these is currently watched and old enough. A real run in
+            active mode would set it back to unwatched for this user.
+          </p>
+          <ul class="pvlist" id="pv-matched-list"></ul>
+          <p class="pvnote" id="pv-matched-empty" hidden>
+            Nothing matches yet. Every item either has not been watched, or has
+            not aged past this rule's timer.
+          </p>
+          <p class="pvnote pvnote--cap" id="pv-matched-more" hidden></p>
+        </section>
+
+        <section class="pvcol" aria-labelledby="pv-skipped-h">
+          <header class="pvcol__head">
+            <h3 class="pvcol__title" id="pv-skipped-h">
+              {{ icons.icon('shield', 15) }} Skipped items
+            </h3>
+            <span class="pvcol__count" data-slot="skipped-count">0</span>
+          </header>
+          <p class="pvcol__lede">
+            Everything the rule looked at and deliberately did not take. Filter
+            by the gate that stopped it.
+          </p>
+          <div class="pvfilters" id="pv-filters" role="group"
+               aria-label="Filter skipped items by reason"></div>
+          <ul class="pvlist" id="pv-skipped-list"></ul>
+          <p class="pvnote" id="pv-skipped-empty" hidden>
+            Nothing was skipped — every item the rule looked at matched.
+          </p>
+          <p class="pvnote" id="pv-skipped-none" hidden>
+            No skipped item has that reason.
+          </p>
+          <p class="pvnote pvnote--cap" id="pv-skipped-more" hidden></p>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="dialog__foot pvfoot">
+    <p class="pvfoot__mode">
+      {% if status and status.safe_mode %}
+        <span class="badge-new badge-new--warn">{{ icons.icon('shield', 12) }} Safe mode on</span>
+        A real run right now would still be a dry run and change nothing.
+      {% else %}
+        <span class="badge-new badge-new--danger">{{ icons.icon('unlock', 12) }} Safe mode off</span>
+        A real run right now would apply these changes to Plex.
+      {% endif %}
+    </p>
+    <span class="spacer"></span>
+    <button type="button" class="btn" id="pv-refresh" onclick="rerunPreview(this)">
+      {{ icons.icon('preview', 14) }} Re-check
+    </button>
+    <button type="button" class="btn btn--primary"
+            onclick="document.getElementById('preview-dialog').close()">Close</button>
+  </div>
+</dialog>
+
+{#- One row template per side. Cloned, never built from strings. -#}
+<template id="tpl-pv-matched">
+  <li class="pvrow pvrow--matched">
+    <img class="poster poster--sm pvrow__art" alt="" loading="lazy" decoding="async" hidden>
+    <span class="poster poster--sm pvrow__art pvrow__art--blank" aria-hidden="true"></span>
+    <div class="pvrow__body">
+      <p class="pvrow__title" data-slot="title"></p>
+      <p class="pvrow__meta" data-slot="meta"></p>
+      <dl class="pvfacts">
+        <div class="pvfact"><dt>User</dt><dd data-slot="user"></dd></div>
+        <div class="pvfact"><dt>Last watched</dt><dd data-slot="watched"></dd></div>
+        <div class="pvfact"><dt>Age</dt><dd data-slot="age"></dd></div>
+        <div class="pvfact"><dt>Plays</dt><dd data-slot="plays"></dd></div>
+      </dl>
+    </div>
+    <span class="badge-new badge-new--warn pvrow__flag">
+      {{ icons.icon('unlock', 12) }} Would become unwatched
+    </span>
+  </li>
+</template>
+
+<template id="tpl-pv-skipped">
+  <li class="pvrow pvrow--skipped">
+    <img class="poster poster--sm pvrow__art" alt="" loading="lazy" decoding="async" hidden>
+    <span class="poster poster--sm pvrow__art pvrow__art--blank" aria-hidden="true"></span>
+    <div class="pvrow__body">
+      <p class="pvrow__title" data-slot="title"></p>
+      <p class="pvrow__meta" data-slot="meta"></p>
+      <p class="pvrow__why" data-slot="why"></p>
+      <dl class="pvfacts">
+        <div class="pvfact"><dt>Last watched</dt><dd data-slot="watched"></dd></div>
+        <div class="pvfact"><dt>Age</dt><dd data-slot="age"></dd></div>
+        <div class="pvfact"><dt>Plays</dt><dd data-slot="plays"></dd></div>
+      </dl>
+    </div>
+    <span class="badge-new pvrow__flag" data-slot="flag"></span>
+  </li>
+</template>
+
+<template id="tpl-pv-filter">
+  <button type="button" class="pvfilter" aria-pressed="false">
+    <span data-slot="label"></span>
+    <span class="pvfilter__count" data-slot="count"></span>
+  </button>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  var USERS = {{ users | tojson }};
+  var SINGLE_USER = {{ 'true' if single_user else 'false' }};
+  var SKIP_REASONS = {{ schema.skip_reasons | tojson }};
+  var editingId = null;
+
+  function el(id) { return document.getElementById(id); }
+
+  // ---------------------------------------------------------------- filters
+  function addFilter(kind, field, value) {
+    var row = el("tpl-filter").content.firstElementChild.cloneNode(true);
+    if (field) { row.querySelector(".filter-field").value = field; }
+    if (value) { row.querySelector(".filter-value").value = value; }
+    row.querySelector(".filter-remove").addEventListener("click", function () { row.remove(); });
+    el(kind + "-rows").appendChild(row);
+  }
+  window.addFilter = addFilter;
+
+  function readFilters(kind) {
+    return Array.from(el(kind + "-rows").querySelectorAll(".filterrow"))
+      .map(function (row) {
+        return {
+          field: row.querySelector(".filter-field").value,
+          value: row.querySelector(".filter-value").value.trim()
+        };
+      })
+      .filter(function (entry) { return entry.value !== ""; });
+  }
+
+  // TV-only gates are meaningless on a movie rule and the server normalises
+  // them away, so they are not offered here either.
+  function syncMediaType() {
+    var media = document.querySelector('input[name="media_type"]:checked').value;
+    var visible = 0;
+    document.querySelectorAll(".libcheck").forEach(function (label) {
+      var matches = label.getAttribute("data-type") === media;
+      label.hidden = !matches;
+      if (matches) { visible += 1; } else { label.querySelector("input").checked = false; }
+    });
+    el("f-libs-empty").hidden = visible > 0;
+    var isShow = media === "show";
+    el("f-scope-wrap").hidden = !isShow;
+    el("f-series-wrap").hidden = !isShow;
+  }
+  window.syncMediaType = syncMediaType;
+
+  // ----------------------------------------------------------------- editor
+  var DEFAULTS = {
+    name: "", media_type: "movie", age_value: 90, age_unit: "days", min_view_count: 1,
+    require_series_complete: true, skip_in_progress: true, skip_now_playing: true,
+    clear_progress: false, tv_scope: "episodes", libraries: [],
+    include_filters: [], exclude_filters: [], user_overrides: []
+  };
+
+  async function openEditor(ruleId) {
+    var rule = DEFAULTS;
+    if (ruleId) {
+      try { rule = await api("/api/rules/" + ruleId); }
+      catch (err) { toast(errorText(err), "err"); return; }
+    }
+    editingId = ruleId || null;
+
+    el("editor-title").textContent = ruleId ? "Edit rule" : "New rule";
+    el("editor-error").hidden = true;
+    el("f-name").value = rule.name || "";
+    document.querySelector('input[name="media_type"][value="' + rule.media_type + '"]').checked = true;
+    el("f-age").value = rule.age_value;
+    el("f-unit").value = rule.age_unit;
+    el("f-views").value = rule.min_view_count;
+    el("f-progress").checked = !!rule.skip_in_progress;
+    el("f-playing").checked = !!rule.skip_now_playing;
+    el("f-series").checked = !!rule.require_series_complete;
+    el("f-clear").checked = !!rule.clear_progress;
+    el("f-scope").value = rule.tv_scope || "episodes";
+
+    syncMediaType();
+    var chosen = (rule.libraries || []).map(function (lib) { return String(lib.id); });
+    document.querySelectorAll('#f-libs input[name="library"]').forEach(function (box) {
+      box.checked = chosen.indexOf(box.value) >= 0;
+    });
+
+    ["include", "exclude"].forEach(function (kind) {
+      el(kind + "-rows").innerHTML = "";
+      (rule[kind + "_filters"] || []).forEach(function (entry) {
+        addFilter(kind, entry.field, entry.value);
+      });
+    });
+
+    if (!SINGLE_USER) {
+      var overrides = {};
+      (rule.user_overrides || []).forEach(function (o) { overrides[o.user_id] = o; });
+      USERS.forEach(function (user) {
+        var saved = overrides[user.id] || {};
+        var enabled = saved.enabled === undefined ? true : !!saved.enabled;
+        document.querySelector('.ov-enabled[data-user="' + user.id + '"]').checked = enabled;
+        document.querySelector('.ov-value[data-user="' + user.id + '"]').value =
+          (saved.age_value === null || saved.age_value === undefined) ? "" : saved.age_value;
+        document.querySelector('.ov-unit[data-user="' + user.id + '"]').value =
+          saved.age_unit || rule.age_unit || "days";
+      });
+    }
+
+    // Advanced sections start closed on a new rule, and open on an existing one
+    // only when they hold something worth seeing.
+    document.querySelectorAll("#editor .disclosure").forEach(function (node) { node.open = false; });
+    if ((rule.include_filters || []).length || (rule.exclude_filters || []).length) {
+      document.querySelectorAll("#editor .disclosure")[1].open = true;
+    }
+
+    el("editor").showModal();
+    el("f-name").focus();
+  }
+  window.openEditor = openEditor;
+
+  async function saveRule(source) {
+    var name = el("f-name").value.trim();
+    if (!name) {
+      showEditorError("Give the rule a name so you can recognise it later.");
+      el("f-name").focus();
+      return;
+    }
+    var libraryIds = Array.from(
+      document.querySelectorAll('#f-libs input[name="library"]:checked')
+    ).map(function (box) { return parseInt(box.value, 10); });
+    if (!libraryIds.length) {
+      showEditorError("Pick at least one library, or the rule has nothing to scan.");
+      return;
+    }
+
+    var body = {
+      name: name,
+      media_type: document.querySelector('input[name="media_type"]:checked').value,
+      age_value: el("f-age").value,
+      age_unit: el("f-unit").value,
+      min_view_count: el("f-views").value,
+      require_series_complete: el("f-series").checked,
+      skip_in_progress: el("f-progress").checked,
+      skip_now_playing: el("f-playing").checked,
+      clear_progress: el("f-clear").checked,
+      tv_scope: el("f-scope").value,
+      library_ids: libraryIds,
+      include_filters: readFilters("include"),
+      exclude_filters: readFilters("exclude")
+    };
+
+    // Only send overrides when the table was actually rendered. Absence must
+    // never read as "everyone was unticked" — that silently disabled rules for
+    // everybody in v1.
+    if (!SINGLE_USER) {
+      body.user_overrides = USERS.map(function (user) {
+        return {
+          user_id: user.id,
+          enabled: document.querySelector('.ov-enabled[data-user="' + user.id + '"]').checked,
+          age_value: document.querySelector('.ov-value[data-user="' + user.id + '"]').value,
+          age_unit: document.querySelector('.ov-unit[data-user="' + user.id + '"]').value
+        };
+      });
+    }
+
+    busy(source, true);
+    try {
+      if (editingId) { await api("/api/rules/" + editingId, { method: "PATCH", body: body }); }
+      else { await api("/api/rules", { method: "POST", body: body }); }
+      toast("Rule saved.", "ok");
+      setTimeout(function () { window.location.reload(); }, 400);
+    } catch (err) {
+      busy(source, false);
+      showEditorError(errorText(err));
+    }
+  }
+  window.saveRule = saveRule;
+
+  // Validation is inline, next to the form it belongs to — never a toast that
+  // disappears while you are still reading the field.
+  function showEditorError(message) {
+    el("editor-error-text").textContent = message;
+    el("editor-error").hidden = false;
+    el("editor").querySelector(".dialog__body").scrollTop = 0;
+  }
+
+  async function deleteRule(source) {
+    var ruleId = source.getAttribute("data-rule-id");
+    var name = source.getAttribute("data-rule-name");
+    var ok = await confirmDialog({
+      title: "Delete this rule?",
+      body: [
+        "“" + name + "” will stop running and its per-user timers go with it.",
+        "History of what it already changed is kept, and those changes can still be undone."
+      ],
+      confirmLabel: "Delete rule",
+      tone: "danger"
+    });
+    if (ok) {
+      act("/api/rules/" + ruleId, { method: "DELETE", source: source }, "Rule deleted.");
+    }
+  }
+  window.deleteRule = deleteRule;
+
+  // ---------------------------------------------------------------- preview
+  // Ephemeral: POST /api/rules/{id}/preview writes nothing, records no run and
+  // sends no notification. Everything rendered below comes out of that one
+  // response — the page never reads a stored row to fill this dialog in.
+  var lastPreview = null;   // { ruleId, userId } so "Re-check" can repeat it
+
+  async function preview(ruleId, source) {
+    var picker = el("preview-user-" + ruleId);
+    if (!picker || !picker.value) { toast("No linked user to preview for.", "err"); return; }
+    lastPreview = { ruleId: ruleId, userId: picker.value };
+    if (!el("preview-dialog").open) { el("preview-dialog").showModal(); }
+    await runPreview(source);
+  }
+  window.preview = preview;
+
+  function rerunPreview(source) {
+    if (lastPreview) { runPreview(source); }
+  }
+  window.rerunPreview = rerunPreview;
+
+  async function runPreview(source) {
+    var state = el("preview-state");
+    el("preview-result").hidden = true;
+    state.innerHTML = "";
+    state.appendChild(loadingNote());
+    el("preview-sub").textContent = "Asking Plex what this rule matches right now…";
+    busy(source, true);
+    try {
+      var result = await api(
+        "/api/rules/" + lastPreview.ruleId + "/preview?user_id=" + lastPreview.userId,
+        { method: "POST" });
+      state.innerHTML = "";
+      renderPreview(result);
+    } catch (err) {
+      state.innerHTML = "";
+      state.appendChild(errorNote(errorText(err)));
+      el("preview-sub").textContent = "The preview could not be completed.";
+    } finally {
+      busy(source, false);
+    }
+  }
+
+  function loadingNote() {
+    var box = document.createElement("div");
+    box.className = "pvloading";
+    for (var i = 0; i < 4; i++) {
+      var bar = document.createElement("div");
+      bar.className = "skeleton";
+      bar.style.height = i === 0 ? "56px" : "44px";
+      box.appendChild(bar);
+    }
+    var label = document.createElement("p");
+    label.className = "pvnote";
+    label.textContent = "Reading the library with this user's own token…";
+    box.appendChild(label);
+    return box;
+  }
+
+  function errorNote(message) {
+    var box = document.createElement("div");
+    box.className = "callout callout--err mb-0";
+    var body = document.createElement("div");
+    body.className = "callout__body";
+    // The API's `detail` is already a sentence written for a person.
+    body.textContent = message;
+    box.appendChild(body);
+    return box;
+  }
+
+  // --- small formatters ----------------------------------------------------
+  function slot(root, name) { return root.querySelector('[data-slot="' + name + '"]'); }
+  function setSlot(root, name, text) {
+    var node = slot(root, name);
+    if (node) { node.textContent = text; }
+    return node;
+  }
+  function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
+
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  function watchedDate(epoch) {
+    if (!epoch) { return "no date"; }
+    var d = new Date(epoch * 1000);
+    return d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear();
+  }
+
+  function watchedExact(epoch) {
+    if (!epoch) { return "Plex has no watch date for this item"; }
+    return new Date(epoch * 1000).toLocaleString();
+  }
+
+  // The age the rule actually reasoned about, spelled out so the timer above
+  // can be checked against it by eye.
+  function watchedAge(epoch) {
+    if (!epoch) { return "unknown"; }
+    var days = Math.floor((Date.now() / 1000 - epoch) / 86400);
+    if (days < 0) { return "in the future"; }
+    if (days === 0) { return "today"; }
+    if (days < 60) { return plural(days, "day"); }
+    var months = Math.floor(days / 30.44);
+    if (months < 24) { return plural(months, "month"); }
+    var years = Math.floor(days / 365.25);
+    var rest = Math.floor((days - years * 365.25) / 30.44);
+    return plural(years, "year") + (rest ? ", " + plural(rest, "month") : "");
+  }
+
+  function itemMeta(item) {
+    var bits = [];
+    if (item.grandparent_title) { bits.push(item.grandparent_title); }
+    if (item.season != null && item.episode != null) {
+      bits.push("S" + item.season + "E" + item.episode);
+    } else if (item.season != null) {
+      bits.push("Season " + item.season);
+    }
+    if (item.year) { bits.push(String(item.year)); }
+    bits.push(item.item_type === "episode" ? "Episode"
+      : item.item_type === "show" ? "Series" : "Movie");
+    return bits.join(" · ");
+  }
+
+  function paintArt(row, item) {
+    var img = row.querySelector(".pvrow__art:not(.pvrow__art--blank)");
+    var blank = row.querySelector(".pvrow__art--blank");
+    if (item.thumb) {
+      // Artwork goes through the proxy so no Plex token reaches the browser.
+      img.src = "/api/thumb?path=" + encodeURIComponent(item.thumb);
+      img.hidden = false;
+      blank.hidden = true;
+    } else {
+      img.hidden = true;
+      blank.hidden = false;
+    }
+  }
+
+  function paintShared(row, item) {
+    setSlot(row, "title", item.display_title || item.title);
+    setSlot(row, "meta", itemMeta(item));
+    var watched = setSlot(row, "watched", watchedDate(item.last_viewed_at));
+    if (watched) { watched.title = watchedExact(item.last_viewed_at); }
+    setSlot(row, "age", watchedAge(item.last_viewed_at));
+    setSlot(row, "plays", item.view_count ? plural(item.view_count, "play") : "none recorded");
+    paintArt(row, item);
+  }
+
+  // --- the render ----------------------------------------------------------
+  function renderPreview(result) {
+    var root = el("preview-result");
+    el("preview-title").textContent = result.rule_name;
+    el("preview-sub").textContent =
+      "as " + result.user_title + " · " +
+      (result.libraries.length ? result.libraries.join(", ") : "no libraries") +
+      " · watched more than " + result.threshold + " ago";
+
+    if (result.error) {
+      el("preview-state").appendChild(errorNote(result.error));
+      root.hidden = true;
+      return;
+    }
+
+    setSlot(root, "matched", result.matched);
+    setSlot(root, "skipped", result.skipped);
+    setSlot(root, "scanned", result.scanned);
+    setSlot(root, "threshold", result.threshold);
+    setSlot(root, "libraries", result.libraries.join(", "));
+    setSlot(root, "as-user", "evaluated as " + result.user_title);
+    setSlot(root, "skipped-foot",
+      result.skipped ? "Held back by a gate — see why on the right" : "Nothing was held back");
+    setSlot(root, "matched-count", result.matched + " exact");
+    setSlot(root, "skipped-count", result.skipped + " exact");
+
+    renderMatched(result);
+    renderSkipped(result);
+    root.hidden = false;
+  }
+
+  function renderMatched(result) {
+    var list = el("pv-matched-list");
+    var tpl = el("tpl-pv-matched");
+    list.innerHTML = "";
+    result.would_change.forEach(function (item) {
+      var row = tpl.content.firstElementChild.cloneNode(true);
+      paintShared(row, item);
+      setSlot(row, "user", result.user_title);
+      list.appendChild(row);
+    });
+    el("pv-matched-empty").hidden = result.would_change.length > 0;
+    capNote("pv-matched-more", result.would_change.length, result.matched);
+  }
+
+  function renderSkipped(result) {
+    var list = el("pv-skipped-list");
+    var tpl = el("tpl-pv-skipped");
+    list.innerHTML = "";
+    result.left_alone.forEach(function (item) {
+      var row = tpl.content.firstElementChild.cloneNode(true);
+      paintShared(row, item);
+      // The wording comes from schema.skip_reasons; nothing here is hardcoded.
+      var text = item.reason_text || SKIP_REASONS[item.reason] || item.reason;
+      setSlot(row, "why", item.detail ? text + " — " + item.detail : text);
+      setSlot(row, "flag", SKIP_REASONS[item.reason] || item.reason);
+      row.setAttribute("data-reason", item.reason);
+      list.appendChild(row);
+    });
+    el("pv-skipped-empty").hidden = result.left_alone.length > 0;
+    el("pv-skipped-none").hidden = true;
+    capNote("pv-skipped-more", result.left_alone.length, result.skipped);
+    renderFilters(result);
+  }
+
+  function capNote(id, shown, exact) {
+    var node = el(id);
+    if (exact > shown) {
+      node.textContent = "Showing the first " + shown + " of " + exact +
+        ". The counts above are exact — only the lists are capped.";
+      node.hidden = false;
+    } else {
+      node.hidden = true;
+    }
+  }
+
+  // Aggregated reasons double as the filter: the count is the answer to "how
+  // much did each gate protect", and pressing one narrows the list to it.
+  function renderFilters(result) {
+    var host = el("pv-filters");
+    var tpl = el("tpl-pv-filter");
+    host.innerHTML = "";
+    if (!result.skip_summary || !result.skip_summary.length) { host.hidden = true; return; }
+    host.hidden = false;
+
+    var entries = [{ reason: "", label: "All reasons", count: result.skipped }];
+    result.skip_summary.forEach(function (entry) {
+      entries.push({
+        reason: entry.reason,
+        label: SKIP_REASONS[entry.reason] || entry.reason,
+        count: entry.count
+      });
+    });
+
+    entries.forEach(function (entry, index) {
+      var chip = tpl.content.firstElementChild.cloneNode(true);
+      setSlot(chip, "label", entry.label);
+      setSlot(chip, "count", entry.count);
+      chip.setAttribute("data-reason", entry.reason);
+      chip.setAttribute("aria-pressed", index === 0 ? "true" : "false");
+      chip.addEventListener("click", function () { applyFilter(entry.reason); });
+      host.appendChild(chip);
+    });
+  }
+
+  function applyFilter(reason) {
+    var chips = el("pv-filters").querySelectorAll(".pvfilter");
+    Array.prototype.forEach.call(chips, function (chip) {
+      chip.setAttribute("aria-pressed",
+        chip.getAttribute("data-reason") === reason ? "true" : "false");
+    });
+    var rows = el("pv-skipped-list").querySelectorAll(".pvrow");
+    var visible = 0;
+    Array.prototype.forEach.call(rows, function (row) {
+      var show = !reason || row.getAttribute("data-reason") === reason;
+      row.hidden = !show;
+      if (show) { visible++; }
+    });
+    el("pv-skipped-none").hidden = visible > 0 || rows.length === 0;
+  }
+
+  document.addEventListener("DOMContentLoaded", syncMediaType);
+</script>
+{% endblock %}

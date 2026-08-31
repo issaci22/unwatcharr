@@ -1,0 +1,65 @@
+{# ===========================================================================
+   Unwatcharr — the one empty state.
+
+   Every "there is nothing here" surface in the app renders through this macro,
+   so a person meets the same shape wherever they land: what is missing, why it
+   is missing, and the exact steps to execute next.
+
+   `steps` is the part that matters. An empty state that only says "no rules
+   yet" leaves the reader to guess the sequence; a numbered technical callout
+   names the screen, the control and the order. Keep each step imperative and
+   concrete — "Settings → Plex → Reconnect", not "check your connection".
+
+   Usage:
+     {% import "_empty.html" as blank %}
+
+     {{ blank.state('rules', 'No rules yet', 'One sentence of why.',
+                    ['Do this first.', 'Then this.']) }}
+
+   With an action button, use the call form:
+
+     {% call blank.state('rules', 'No rules yet', 'Why.', ['Step one.']) %}
+       <button class="btn btn--primary">Create a rule</button>
+     {% endcall %}
+   =========================================================================== #}
+{% import "_icons.html" as icons %}
+
+{% macro state(glyph, title, text, steps=[], size=32) -%}
+<div class="empty">
+  <span class="empty__icon">{{ icons.icon(glyph, size) }}</span>
+  <span class="empty__title">{{ title }}</span>
+  {% if text %}<p class="empty__text">{{ text }}</p>{% endif %}
+
+  {%- if steps %}
+  {# Technical, numbered and left-aligned on purpose: this is an instruction,
+     not a mood. Centred prose is unreadable as a checklist. #}
+  <div class="empty__next">
+    <span class="empty__nextlabel caps">
+      {{ icons.icon('chevron', 11) }}
+      {{ 'What to do next' if steps | length > 1 else 'Next step' }}
+    </span>
+    <ol class="steplist">
+      {%- for step in steps %}
+      <li class="steplist__item">{{ step }}</li>
+      {%- endfor %}
+    </ol>
+  </div>
+  {%- endif %}
+
+  {%- if caller %}
+  <div class="empty__actions">{{ caller() }}</div>
+  {%- endif %}
+</div>
+{%- endmacro %}
+
+
+{# A filter returned nothing. Deliberately quieter and without a step list: the
+   data exists, this view just narrowed past it, and the fix is in the controls
+   the reader is already looking at. #}
+{% macro filtered(title, text) -%}
+<div class="empty empty--quiet">
+  <span class="empty__icon">{{ icons.icon('search', 24) }}</span>
+  <span class="empty__title">{{ title }}</span>
+  <p class="empty__text mb-0">{{ text }}</p>
+</div>
+{%- endmacro %}
