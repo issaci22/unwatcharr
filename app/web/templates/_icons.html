@@ -89,16 +89,17 @@
 {%- endmacro %}
 
 
-{# The wordmark. WATCH → AGE → UNWATCH read as one shape: a media playhead
-   inside a cycle that runs backwards. Drawn, not generated, and it survives
-   being rendered at 18px in a mobile app bar. #}
+{# The wordmark. A skip-back mark: the track bar the playhead returns to, and
+   a rewind triangle driving into it — watch state wound back to unwatched.
+   Drawn, not generated, and it survives being rendered at 18px in a mobile
+   app bar. #}
 {% macro logo(size=26, cls="") -%}
-<svg class="logo {{ cls }}" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24"
-     fill="none" aria-hidden="true" focusable="false">
-  <path d="M4.11 9.13A8.4 8.4 0 1 1 4.11 14.87"
-        stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-  <path d="M7.4 7.9 4.1 9.13 5.4 12.4"
-        stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M10.4 8.9 15.5 12l-5.1 3.1Z" fill="currentColor" opacity=".5"/>
+<svg class="logo brand-logo {{ cls }}" width="{{ size or 24 }}" height="{{ size or 24 }}"
+     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+  {# Vertical line bar on the left boundary #}
+  <line x1="5" y1="4" x2="5" y2="20"/>
+  {# Left-pointing triangle geometry for the media control style #}
+  <polygon points="19,20 9,12 19,4" fill="currentColor"/>
 </svg>
 {%- endmacro %}
