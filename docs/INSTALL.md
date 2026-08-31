@@ -179,25 +179,22 @@ curl http://<host>:8577/healthz
 ## First run
 
 1. Open `http://<host>:8577`.
-2. If a Plex-Unwatcher v1 database is detected inside `/config`, the wizard
-   offers to import it. See [UPGRADING.md](UPGRADING.md). The v1 file is opened
-   read-only.
-3. **Connect to Plex.** The recommended path is the plex.tv link code: the
+2. **Connect to Plex.** The recommended path is the plex.tv link code: the
    wizard shows a short code, you approve it at `plex.tv/link`, and it lists the
    servers on your account. Pick one and it probes every address Plex advertises
    for it until one answers from inside the container.
    - If none are reachable (common when Plex uses host networking and the
      advertised addresses are container-internal), use the manual option and
      give it a LAN address such as `http://192.168.1.10:32400` plus a token.
-4. **Link your users.** Owner, Plex Home and managed users can be linked
+3. **Link your users.** Owner, Plex Home and managed users can be linked
    automatically — Unwatcharr mints a server-scoped token for them. Shared users
    *cannot*: Plex offers no admin route to a shared user's token, so you must
    paste one. A user without a working token is simply left alone.
-5. **Set a UI password.** Until you do, anyone who can reach port 8577 can change
+4. **Set a UI password.** Until you do, anyone who can reach port 8577 can change
    your Plex watch history. The dashboard nags you about this.
-6. **Write a rule**, then **preview it** against a real user. Read the skip
+5. **Write a rule**, then **preview it** against a real user. Read the skip
    reasons. They tell you exactly why each item was left alone.
-7. **Turn safe mode off** only once a preview showed you what you expected. It
+6. **Turn safe mode off** only once a preview showed you what you expected. It
    needs an explicit confirmation.
 
 ## Upgrading the container

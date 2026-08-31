@@ -101,7 +101,6 @@ def status() -> dict[str, Any]:
             "expired": len(expired),
             "single_user": store.is_single_user(),
         },
-        "migrated_from_v1": bool(config.get("migrated_from_v1")),
         "warnings": warnings,
     }
 

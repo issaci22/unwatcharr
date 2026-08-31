@@ -24,7 +24,6 @@ from fastapi.templating import Jinja2Templates
 from . import security, viewmodels as vm
 from .. import __version__, logging_conf, store
 from ..config import APP_NAME
-from ..services import migrate_v1
 from ..services import runs as runs_service
 from ..services import status as status_service
 from ..timeutil import format_ts, relative
@@ -229,8 +228,6 @@ async def setup_page(request: Request):
         "setup",
         hide_nav=not store.get_config("setup_complete"),
         bare_wide=True,
-        v1=migrate_v1.detect(),
-        target_empty=migrate_v1.target_is_empty(),
         schema=vm.settings_schema(),
         settings=store.public_config(),
         libraries=vm.libraries(store.list_libraries()),

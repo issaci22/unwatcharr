@@ -21,7 +21,6 @@ from ..config import APP_NAME
 from ..engine import scheduler
 from ..plex import account as plex_account
 from ..plex.client import PlexError, PlexServer, first_reachable, is_safe_artwork_path
-from ..services import migrate_v1
 from ..services import rules as rules_service
 from ..services import runs as runs_service
 from ..services import setup as setup_service
@@ -79,30 +78,6 @@ async def get_schema() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
-
-@router.get("/setup/v1-import", dependencies=[Depends(authed)])
-async def v1_import_detect() -> dict[str, Any]:
-    """Is there a Plex-Unwatcher v1 database worth offering to import?"""
-    found = migrate_v1.detect()
-    found["target_empty"] = migrate_v1.target_is_empty()
-    return found
-
-
-@router.post("/setup/v1-import", dependencies=[Depends(authed)])
-async def v1_import_run(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    path = str(payload.get("path") or "").strip()
-    if not path:
-        found = migrate_v1.detect()
-        if not found.get("found"):
-            raise fail("No Plex-Unwatcher v1 database was found to import.", 404)
-        path = str(found["path"])
-    try:
-        result = migrate_v1.import_v1(path, force=bool(payload.get("force")))
-    except migrate_v1.MigrationError as exc:
-        raise fail(str(exc)) from exc
-    scheduler.reschedule()
-    return result
-
 
 @router.post("/setup/pin", dependencies=[Depends(authed)])
 async def setup_pin() -> dict[str, Any]:

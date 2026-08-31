@@ -272,7 +272,6 @@ The one dashboard payload. Poll this.
             "users_linked": 3},
   "users": {"total": 4, "linked": 3, "unlinked": 1, "expired": 0,
             "single_user": false},
-  "migrated_from_v1": false,
   "warnings": [{"level": "warn", "message": "No web UI password is set. ..."}]
 }
 ```
@@ -289,35 +288,6 @@ The vocabulary block shown above.
 ---
 
 ## Setup
-
-### `GET /api/setup/v1-import`
-Detect an importable Plex-Unwatcher v1 database.
-
-```json
-{ "found": true, "path": "/config/plex-unwatcher.db", "schema_version": 4,
-  "server_name": "Tower", "plex_url": "http://192.168.1.10:32400",
-  "has_token": true,
-  "counts": {"rules": 2, "users": 1, "libraries": 2,
-             "runs": 2, "actions": 234, "overrides": 0},
-  "target_empty": true }
-```
-
-When nothing is found: `{"found": false, "searched": ["...", "..."]}`.
-`target_empty` tells you whether importing would overwrite anything.
-
-### `POST /api/setup/v1-import`
-Body: `{"path": "...", "force": false}` — both optional; with no `path` the
-detected one is used (404 if none).
-
-```json
-{ "source": { "...": "the detect payload" },
-  "imported": {"settings": 9, "libraries": 2, "users": 1,
-               "rules": 2, "overrides": 0, "runs": 1, "passes": 2,
-               "actions": 234} }
-```
-
-The source file is opened read-only and is never modified. `session_secret` and
-every other secret are **not** imported. Re-importing is refused.
 
 ### `POST /api/setup/pin`
 Start the plex.tv link-code flow. Returns the PIN object — show `code` to the

@@ -32,7 +32,7 @@ them later does nothing — that is the point.
 | Variable | Effect |
 |---|---|
 | `PLEX_URL` | Pre-seeds the server address, e.g. `http://192.168.1.10:32400`. |
-| `PLEX_TOKEN` | Pre-seeds the owner's token. Genuinely consumed (unlike v1). Leave unset to use the plex.tv link code instead — recommended. |
+| `PLEX_TOKEN` | Pre-seeds the owner's token. Leave unset to use the plex.tv link code instead — recommended. |
 
 Derived paths: `DB_PATH = $CONFIG_DIR/unwatcharr.db`, `LOG_DIR = $CONFIG_DIR/logs`.
 
@@ -118,18 +118,11 @@ are registered as they are discovered.
 |---|---|---|
 | `ui_password_hash` | `""` | **Secret.** scrypt. Empty ⇒ no password ⇒ the dashboard warns you. |
 | `ui_password_salt` | `""` | **Secret.** |
-| `session_secret` | `""` | **Secret.** Generated on first boot. Never imported from v1, never baked into the image. |
+| `session_secret` | `""` | **Secret.** Generated on first boot, never baked into the image. |
 | `secure_cookies` | `false` | Turn on when behind HTTPS. |
 
 Changing the password re-issues the current session and **kills every other
 session** — the session carries a password stamp that stops matching.
-
-### Provenance
-
-| Key | Default |
-|---|---|
-| `migrated_from_v1` | `false` |
-| `migrated_from_v1_at` | `0` |
 
 ### Secrets
 
@@ -180,7 +173,7 @@ episode of that show matched** — a partly-matched show stays as episodes.
 
 Each rule can carry per-user overrides: a different `age_value`/`age_unit`, or
 `enabled: false` to opt a user out entirely. An **absent or empty** override set
-never disables a rule for anyone (this was a v1 trap; there is a regression test
+never disables a rule for anyone (there is a regression test
 for it). `GET /api/rules/{id}/thresholds` shows the resolved value per user.
 
 ---

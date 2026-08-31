@@ -46,17 +46,7 @@ TZ = _env("TZ", "UTC")
 
 # Optional pre-seeds, applied to the settings table on FIRST BOOT ONLY. After
 # that the UI owns these values, so a stale compose file cannot silently clobber
-# what was configured in the browser.
-#
-# Unlike v1, PLEX_TOKEN is actually consumed (store.ensure_bootstrap) -- v1
-# advertised it in .env.example and docker-compose.yml and wired it to nothing.
+# what was configured in the browser. Both are genuinely consumed in
+# store.ensure_bootstrap().
 SEED_PLEX_URL = _env("PLEX_URL")
 SEED_PLEX_TOKEN = _env("PLEX_TOKEN")
-
-# Places inside CONFIG_DIR the setup wizard looks for a Plex-Unwatcher v1
-# database to offer for import.
-V1_DB_CANDIDATES = (
-    "plex-unwatcher.db",
-    "plex-unwatcher/plex-unwatcher.db",
-    "v1/plex-unwatcher.db",
-)

@@ -30,8 +30,6 @@ docker compose up -d          # then open http://<host>:8577
   individually or a whole run at a time.
 - **Notifications.** Webhook, Discord or ntfy, silent when a run did nothing.
 - **Scheduler.** Interval or cron, with catch-up on boot for missed runs.
-- **v1 import.** Guided import from a Plex-Unwatcher v1 database. The old file is
-  opened read-only and never modified.
 
 ## The one thing to understand about undo
 
@@ -93,7 +91,6 @@ Full instructions: [docs/INSTALL.md](docs/INSTALL.md).
 |---|---|
 | [docs/INSTALL.md](docs/INSTALL.md) | Docker, TrueNAS SCALE, PUID/PGID, first-run wizard |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Every environment variable and every setting |
-| [docs/UPGRADING.md](docs/UPGRADING.md) | Importing a Plex-Unwatcher v1 database |
 | [docs/API.md](docs/API.md) | The complete JSON API contract |
 | [CLAUDE.md](CLAUDE.md) | Engineering guide / architecture |
 
@@ -111,7 +108,7 @@ app/engine/collect.py  paged library fetch
 app/engine/preview.py  ephemeral evaluation
 app/engine/runner.py   RunManager singleton, undo
 app/engine/scheduler.py APScheduler; the only caller of history pruning
-app/services/      the seam: setup, users, rules, runs, status, migrate_v1
+app/services/      the seam: setup, users, rules, runs, status
 app/web/api.py     THE CONTRACT (~45 JSON endpoints)
 app/web/pages.py   a deliberately disposable, unstyled UI over that API
 ```
@@ -142,5 +139,4 @@ user's watch state and that no Plex token appears in any response body.
 1. Safe mode is on by default and forces `apply` → `dry`.
 2. No Plex token is ever emitted by the API or rendered into a page.
 3. The artwork proxy has host and path allowlists — it is not an open proxy.
-4. A v1 database is only ever opened read-only.
-5. `session_secret` is never imported from v1 and never baked into the image.
+4. `session_secret` is generated per install and never baked into the image.

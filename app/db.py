@@ -104,11 +104,11 @@ def close() -> None:
 
 
 def open_readonly(path: str | Path) -> sqlite3.Connection:
-    """Open another database strictly for reading.
+    """Open a database strictly for reading.
 
-    Used for the Plex-Unwatcher v1 import: that file belongs to the previous
-    installation and must never be written, so it is opened through a URI with
-    mode=ro rather than trusted to good behaviour.
+    Opened through a URI with mode=ro, so SQLite rejects writes outright rather
+    than the caller being trusted to behave. Used wherever a file must be
+    inspected without any chance of modifying it.
     """
     resolved = Path(path).resolve()
     if not resolved.is_file():

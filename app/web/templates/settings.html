@@ -444,7 +444,6 @@
         <div><dt>Database schema</dt><dd class="mono">v{{ status.app.schema_version }}</dd></div>
         <div><dt>Timezone</dt><dd class="mono">{{ status.app.timezone }}</dd></div>
         <div><dt>Setup</dt><dd>{{ 'Complete' if status.setup_complete else 'Not finished' }}</dd></div>
-        <div><dt>Imported from v1</dt><dd>{{ 'Yes' if status.migrated_from_v1 else 'No' }}</dd></div>
         <div><dt>Log buffer</dt>
           <dd>In memory, cleared on restart — <a href="/logs">view the logs</a></dd></div>
       </dl>

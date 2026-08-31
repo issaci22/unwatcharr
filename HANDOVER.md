@@ -8,7 +8,8 @@ workspace: D:\Documents\Claude Projects\Unwatcharr
 reference_readonly: D:\Documents\Claude Projects\Plex-Unwatcher
 plan: C:\Users\IssacPC\.claude\plans\use-the-claude-md-file-wiggly-quiche.md
 version: 2.1.0
-updated: 2026-08-30 (backend frozen — 140/140 unit, 50/50 e2e, image 206MB;
+updated: 2026-08-30 (v1 IMPORT FEATURE REMOVED ENTIRELY -- see `v1_removal`
+         below; 123/123 unit, 50/50 e2e green after the removal;
          DESIGN COMPLETE 10/10; repo initialised, GHCR pipeline live, compose
          collapsed to a single docker-compose.yaml)
 
@@ -81,6 +82,27 @@ packaging:
   env_surface: TZ, PUID, PGID, PORT="8577", LOG_LEVEL + first-boot-only
                PLEX_URL / PLEX_TOKEN. No legacy v1 migration variables exist.
 
+v1_removal:
+  why: first public release -- there is no v1 to upgrade from in public.
+  deleted: app/services/migrate_v1.py · tests/test_migrate_v1.py ·
+           docs/UPGRADING.md
+  code_stripped:
+    app/config.py       V1_DB_CANDIDATES gone
+    app/web/api.py      GET+POST /api/setup/v1-import gone (contract change)
+    app/web/pages.py    setup page no longer resolves v1/target_empty
+    app/services/status.py + app/store.py  migrated_from_v1[_at] gone from
+                        CONFIG_DEFAULTS and the status payload
+    templates/setup.html  step-1 offer card + its script (~7KB) gone
+    templates/settings.html  "Imported from v1" row gone
+    static/app.css      .v1card block gone
+  kept: db.open_readonly() -- generic now, still covered by
+        tests/test_store.py::test_read_only_open_refuses_writes
+  NOT touched: docs/PROJECT-BRIEF.md still describes the v1 import. It is the
+               original requirements document ("never delete", CLAUDE.md), so
+               rewriting it would falsify the record. It is PUBLIC in the repo
+               -- decide whether the brief belongs in a public release at all.
+  test_count: 140 -> 123 unit (17 were migrate_v1 tests). 50/50 e2e unchanged.
+
 manual_steps_still_required:
   - Make the GHCR package public (github.com/users/issaci22/packages) after the
     first workflow run, or the documented `docker compose up -d` fails for
@@ -143,7 +165,6 @@ app/services/users.py    refresh_users (3 sources) / link_home_user / set_user_t
 app/services/rules.py    RuleError, validate, CRUD, save_overrides, effective_thresholds
 app/services/runs.py     RunError, start/cancel/current/preview, history, undo, UNDO_CAVEAT
 app/services/status.py   status() -- the one dashboard/health payload
-app/services/migrate_v1.py  detect/inspect/target_is_empty/import_v1, SKIP_SETTINGS
 app/web/security.py      scrypt, session+password stamp, rate limit, origin check
 app/web/viewmodels.py    serialisers -- NEVER emit a token
 app/web/api.py           the JSON contract, ~45 endpoints
@@ -162,9 +183,8 @@ tests/conftest.py        unit-suite fixtures
 tests/test_rules.py      gate matrix, filters, tag inheritance, series gate, collapse
 tests/test_cutoff.py     DST-exact units, calendar months w/ clamping, 0=everything
 tests/test_store.py      build_rule overrides, cascade, public_config, redaction
-tests/test_migrate_v1.py synthetic v1 db -> import -> mapping, source unchanged
 tests/test_plex_client.py MockTransport: paging, both allowlists, per-call tokens
-tests/fixtures/*.json    3 recorded Plex payloads ported from v1
+tests/fixtures/*.json    3 recorded Plex payloads
 tests/e2e/mock_plex.py   TOKEN-AWARE mock PMS, /__calls /__state /__reset
 tests/e2e/conftest.py    session mock+app subprocess, per-test reset, wait_for_run
 tests/e2e/test_e2e.py    50 tests
@@ -178,7 +198,6 @@ docker-compose.yaml      THE ONLY COMPOSE FILE: pulls ghcr.io/issaci22/
 README.md                front door
 docs/INSTALL.md          docker/truenas/bare metal, first run, troubleshooting
 docs/CONFIGURATION.md    every env var + every setting + rule fields + skip reasons
-docs/UPGRADING.md        v1 -> 2.1 import
 docs/API.md              THE DESIGN HANDOFF: every endpoint + every viewmodel field
 docs/PROJECT-BRIEF.md    original brief, preserved verbatim
 CLAUDE.md HANDOVER.md requirements*.txt pytest.ini .gitignore .dockerignore
@@ -228,9 +247,9 @@ is baked into the image** · HEALTHCHECK on /healthz · `VOLUME /config`,
 `EXPOSE 8577` · entrypoint chowns only when ownership is wrong, then
 `setpriv --reuid --regid --clear-groups`.
 
-**G** **140/140 unit tests green.** Ported from the phase B/C/D scratchpad smoke
+**G** **123/123 unit tests green** (140 before the v1 removal). Ported from the phase B/C/D scratchpad smoke
 scripts across `test_rules.py`, `test_cutoff.py`, `test_store.py`,
-`test_migrate_v1.py`, `test_plex_client.py`.
+`test_plex_client.py`.
 
 **H** README + 4 docs written from the code, not from memory: every endpoint in
 `docs/API.md` was read out of `app/web/api.py`, every field out of
@@ -266,7 +285,6 @@ change to build a real frontend.
 - Safe mode rewrites the run row's `mode` via `store.set_run_mode()`, and has its
   own endpoint requiring `confirm` — never a checkbox in a long form.
 - Only the scheduled tick prunes history.
-- v1 import: guided in the setup wizard, read-only, no `session_secret`.
 - JSON API is the single contract; the UI is disposable and unstyled.
 - Docker is single-stage; the session secret is never baked into the image.
 

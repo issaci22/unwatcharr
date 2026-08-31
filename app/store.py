@@ -61,9 +61,6 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "ui_password_salt": "",
     "session_secret": "",
     "secure_cookies": False,
-    # --- Provenance --------------------------------------------------------
-    "migrated_from_v1": False,
-    "migrated_from_v1_at": 0,
 }
 
 # Keys that must never leave the server. Referenced by the API serialisers and

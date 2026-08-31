@@ -5,7 +5,7 @@
 {#- ---------------------------------------------------------------------------
     First-launch setup — eight steps, one screen at a time.
 
-      1 Welcome        what this does, and the guided v1 import if one is found
+      1 Welcome        what this does, and what it will never do
       2 Connect Plex   plex.tv link code, or a pasted address and token
       3 Choose server  which of the account's servers this instance points at
       4 Discover users who runs will be able to act as, and who still cannot
@@ -22,11 +22,6 @@
     NOTHING user-controlled is ever concatenated into markup. Server names,
     user names and library titles arrive from the API and are written with
     textContent into cloned <template> rows.
-
-    The v1 import is GUIDED, never automatic, and the wording says plainly what
-    services/migrate_v1.py actually guarantees: the old database is opened
-    read-only through db.open_readonly() and is never written, renamed or moved.
-    A test asserts the source file is byte-for-byte unchanged after an import.
 --------------------------------------------------------------------------- #}
 
 {% set steps = [
@@ -102,105 +97,6 @@
         </li>
       </ul>
 
-      {% if v1.found and target_empty %}
-      {# Guided, never automatic. The offer states the read-only guarantee up
-         front, because "will this touch my old install" is the only question
-         that matters here. #}
-      <div class="v1card">
-        <div class="v1card__head">
-          <span class="badge-new badge-new--brand">{{ icons.icon('history', 12) }} Upgrade found</span>
-          <strong class="v1card__title">A Plex-Unwatcher v1 installation is on disk</strong>
-        </div>
-
-        <dl class="deflist v1card__facts">
-          <dt>Server</dt><dd>{{ v1.server_name or 'Unknown server' }}</dd>
-          <dt>Database</dt><dd class="mono tiny">{{ v1.path }}</dd>
-          <dt>Schema</dt><dd>v1 user_version {{ v1.schema_version }}</dd>
-          <dt>Contents</dt><dd>
-            {{ v1.counts.rules }} rule{{ '' if v1.counts.rules == 1 else 's' }} ·
-            {{ v1.counts.users }} user{{ '' if v1.counts.users == 1 else 's' }} ·
-            {{ v1.counts.libraries }} librar{{ 'y' if v1.counts.libraries == 1 else 'ies' }} ·
-            {{ v1.counts.runs }} run{{ '' if v1.counts.runs == 1 else 's' }} ·
-            {{ v1.counts.actions }} recorded change{{ '' if v1.counts.actions == 1 else 's' }}
-          </dd>
-        </dl>
-
-        <div class="callout callout--ok">
-          <span class="callout__icon">{{ icons.icon('shield', 16) }}</span>
-          <div class="callout__body">
-            <strong>Your v1 database is opened read-only and is never modified.</strong>
-            <div class="small muted">
-              The file at <span class="mono">{{ v1.path }}</span> is opened
-              through SQLite's <span class="mono">mode=ro</span> URI, which
-              rejects writes outright. It is never written to, renamed or moved,
-              and a test in this build asserts it is <strong>byte-for-byte
-              unchanged</strong> — same size, same modification time — after an
-              import completes. If the upgrade goes wrong, the old installation
-              is still exactly where you left it and still runs.
-            </div>
-          </div>
-        </div>
-
-        <details class="disclosure v1card__detail">
-          <summary>
-            <span class="disclosure__title">What comes across, and what deliberately does not</span>
-          </summary>
-          <div class="disclosure__body">
-            <ul class="tightlist">
-              <li><strong>Carried over:</strong> settings, libraries, users and
-                their tokens, rules, per-user overrides, run history and every
-                recorded change — so past changes stay undoable.</li>
-              <li><strong>Reshaped on the way in:</strong> a v1 rule's single
-                library becomes a library membership row, the library's type
-                becomes the rule's media type, TV rules land on
-                <span class="mono">episodes</span> scope (what v1 actually did),
-                and v1's per-rule-per-user run rows are regrouped by their batch
-                id into one run with a pass each.</li>
-              <li><strong>Never imported:</strong> the session secret. A fresh
-                one is generated here, because session secrets must not be
-                shared between installations. Everyone is signed out once.</li>
-              <li><strong>Dropped:</strong> any v1 setting that no longer exists
-                in 2.1, so a stale key cannot resurrect a removed behaviour.</li>
-            </ul>
-          </div>
-        </details>
-
-        <p class="field__error" data-err="v1" hidden></p>
-
-        <div class="btnrow">
-          <button type="button" class="btn btn--primary" id="v1-import">
-            {{ icons.icon('history', 15) }} Import from Plex-Unwatcher v1
-          </button>
-          <button type="button" class="btn" data-go="2">Set up fresh instead</button>
-        </div>
-      </div>
-
-      <div class="callout callout--ok" id="v1-done" hidden>
-        <span class="callout__icon">{{ icons.icon('check', 16) }}</span>
-        <div class="callout__body">
-          <strong data-slot="v1-headline">Imported.</strong>
-          <div class="small muted" data-slot="v1-detail"></div>
-        </div>
-      </div>
-
-      {% elif v1.found and not target_empty %}
-      <div class="callout callout--warn">
-        <span class="callout__icon">{{ icons.icon('alert', 16) }}</span>
-        <div class="callout__body">
-          <strong>A Plex-Unwatcher v1 database was found, but it cannot be imported.</strong>
-          <div class="small muted">
-            <span class="mono">{{ v1.path }}</span> holds
-            {{ v1.counts.rules }} rule{{ '' if v1.counts.rules == 1 else 's' }} and
-            {{ v1.counts.users }} user{{ '' if v1.counts.users == 1 else 's' }},
-            but this installation already has rules or users of its own.
-            Importing would mix two configurations together, so it is refused.
-            To import instead, start again from an empty
-            <span class="mono">/config</span> directory. The v1 file is untouched
-            either way — it is only ever opened read-only.
-          </div>
-        </div>
-      </div>
-      {% endif %}
 
       <div class="wizfoot">
         <span class="wizfoot__note muted small">Nothing is written to Plex during setup.</span>
@@ -811,48 +707,6 @@
   $$("[data-go]").forEach(function (btn) {
     btn.addEventListener("click", function () { goto(Number(btn.dataset.go)); });
   });
-
-  /* ------------------------------------------------------- step 1: v1 import */
-
-  var v1Button = document.getElementById("v1-import");
-  if (v1Button) {
-    v1Button.addEventListener("click", async function () {
-      var ok = await window.confirmDialog({
-        title: "Import from Plex-Unwatcher v1?",
-        body: [
-          "Rules, users, libraries, settings and the full change history are copied into this installation.",
-          "The v1 database is opened read-only. It is never written to, renamed or moved — it will be byte-for-byte identical afterwards, so the old installation keeps working."
-        ],
-        detail: "Your session secret is not imported. A fresh one is generated, so every signed-in session is ended once.",
-        confirmLabel: "Import"
-      });
-      if (!ok) { return; }
-
-      fail("v1", "");
-      window.busy(v1Button, true);
-      try {
-        var result = await window.api("/api/setup/v1-import", { method: "POST", body: {} });
-        var i = result.imported;
-        var done = document.getElementById("v1-done");
-        slot(done, "v1-headline",
-          "Imported " + i.rules + " rule(s), " + i.users + " user(s) and " +
-          i.runs + " run(s) from Plex-Unwatcher v1.");
-        slot(done, "v1-detail",
-          "The source database was only read — it is unchanged. A fresh session " +
-          "secret was generated, so any other signed-in session has ended.");
-        done.hidden = false;
-        $$(".v1card").forEach(function (el) { el.hidden = true; });
-
-        await refreshStatus();
-        window.toast("Imported from Plex-Unwatcher v1.", "ok");
-        goto(state.connected ? 4 : 2);
-      } catch (err) {
-        fail("v1", window.errorText(err));
-      } finally {
-        window.busy(v1Button, false);
-      }
-    });
-  }
 
   /* ---------------------------------------------------------- step 2: connect */
 

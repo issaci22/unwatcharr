@@ -14,9 +14,6 @@ Targets a TrueNAS box, so image size and RAM matter.
 Plex removed plugin support in 2018 — this cannot run inside Plex and talks to
 its HTTP API from outside.
 
-Reference implementation (v1, **READ-ONLY, never modify**):
-`D:\Documents\Claude Projects\Plex-Unwatcher`
-
 ## Commands
 
 ```bash
@@ -64,7 +61,6 @@ No linter or formatter is configured.
 | [README.md](README.md) | Front door: what it does, quick start, architecture in one screen |
 | [docs/INSTALL.md](docs/INSTALL.md) | Docker / TrueNAS / bare metal, PUID/PGID, first run, troubleshooting |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Every env var and every `CONFIG_DEFAULTS` key, rule fields, skip reasons |
-| [docs/UPGRADING.md](docs/UPGRADING.md) | v1 → 2.1 import: guarantees, mapping table, what must be redone by hand |
 | [docs/API.md](docs/API.md) | **The design-phase handoff.** Every endpoint, every viewmodel field |
 | [docs/PROJECT-BRIEF.md](docs/PROJECT-BRIEF.md) | The original brief. Requirements document — never delete |
 
@@ -129,7 +125,7 @@ HTTP ─┬─ web/api.py    (JSON: every read and every mutation)  ← the cont
               │
       web/viewmodels.py   (one set of dict builders, shared by both)
               │
-         services/   setup · users · rules · runs · status · migrate_v1
+         services/   setup · users · rules · runs · status
               │
     engine/  rules (PURE) · collect · preview · runner · scheduler
               │
@@ -238,35 +234,12 @@ Design progress and the block order live in [HANDOVER.md](HANDOVER.md).
   `app/migrations.py` with the next version number. `SCHEMA_VERSION` derives
   itself from that tuple. **Never edit a migration that has shipped.**
 - `CREATE TABLE IF NOT EXISTS` will never add a column to an existing database.
-  This is why v1's schema/migration split was wrong and is not repeated here.
-- A v1 database is opened **read-only** via `db.open_readonly()`
-  (`file:…?mode=ro`, verified to reject writes on Windows). The v1 workspace is
-  never written to.
-- `session_secret` is generated per install and is **never** imported from a v1
-  database — session secrets must not be shared between installations.
-
-## Importing a Plex-Unwatcher v1 installation
-
-`services/migrate_v1.py`. Guided from the setup wizard, never automatic.
-
-- The v1 file is opened **read-only** and is never written, renamed or moved. An
-  upgrade must be able to fail and leave the old install exactly as it was. A
-  test asserts the source is byte-for-byte unchanged (mtime + size). Step 1 of
-  the setup wizard states that guarantee in those words, because "will this
-  touch my old install" is the only question a person has at that moment.
-- `detect()` searches `$CONFIG_DIR/` for `plex-unwatcher.db`,
-  `plex-unwatcher/plex-unwatcher.db`, `v1/plex-unwatcher.db`. There is no env
-  var override — dropping the file into `/config` is the only supported path.
-- **`session_secret` is never imported** (`SKIP_SETTINGS`). A fresh one is
-  generated; everyone gets logged out once, which is the correct trade.
-- Only keys still in `store.CONFIG_DEFAULTS` are carried, so a stale v1 key
-  cannot resurrect a setting that no longer exists.
-- Shape changes on the way in: v1 `rules.library_id` → one `rule_libraries` row;
-  the v1 library's `type` becomes `media_type`; `tv_scope` is `episodes`
-  (what v1 did); v1 `runs` grouped by their `batch` column → one `runs` row plus
-  a `run_passes` row each; `actions.run_id` (a v1 run = a v2 pass) is remapped.
-- Import into a database that already has rules or users is **refused** unless
-  `force`.
+  A schema change is a migration, never a tweak to the baseline.
+- `db.open_readonly()` opens a file through `file:…?mode=ro` (verified to reject
+  writes on Windows) for anything that must be inspected without a chance of
+  modifying it.
+- `session_secret` is generated per install and is never shared between
+  installations or baked into the image.
 
 ## Configuration lives in two places
 
@@ -285,11 +258,11 @@ clobber what was configured in the UI.
 | --- | --- | --- |
 | `CONFIG_DIR` | `./config` | Database at `$CONFIG_DIR/unwatcharr.db`, logs at `$CONFIG_DIR/logs` |
 | `HOST` | `0.0.0.0` | |
-| `PORT` | `8577` | Kept from v1 for upgrade continuity |
+| `PORT` | `8577` | Pinned to the published port mapping |
 | `LOG_LEVEL` | `info` | `debug`\|`info`\|`warning`\|`error` |
 | `TZ` | `UTC` | Resolved through `timeutil.resolve()`; an unknown zone logs a warning and falls back, never raises |
 | `PLEX_URL` | — | First-boot seed |
-| `PLEX_TOKEN` | — | First-boot seed. **Actually consumed** in `store.ensure_bootstrap()` — v1 advertised this and wired it to nothing |
+| `PLEX_TOKEN` | — | First-boot seed. Consumed in `store.ensure_bootstrap()` |
 | `PUID` / `PGID` | `1000` | Container only; entrypoint chowns `/config` and drops root |
 
 Adding a setting = a default in `store.CONFIG_DEFAULTS` + validation in the
@@ -308,7 +281,7 @@ settings API. Secrets must also be listed in `store.SECRET_CONFIG_KEYS`, which
   - plex.tv avatars → `plex_account._host_allowed()` (https + plex.tv or a
     subdomain; rejects `plex.tv.evil.com`)
   - PMS artwork → `client.is_safe_artwork_path()` (`/library/` or `/photo/`,
-    no scheme, no `//`, no `..`). v1 passed any path straight through, so
+    no scheme, no `//`, no `..`). Passing any path straight through would make
     `/:/unscrobble` was reachable through the thumb proxy.
 - Database file is chmod 600 where the filesystem allows it.
 
@@ -342,7 +315,7 @@ otherwise.
 - **Absent is not "unticked".** `services/rules.save_overrides()` no-ops when
   `user_overrides` is missing or empty, because a single-user server never
   renders that table and reading absence as intent silently disabled rules for
-  everyone in v1. To clear an override, send it explicitly.
+  everyone. To clear an override, send it explicitly.
 - `httpx.MockTransport` is the cheapest way to test the Plex client: swap
   `server._client` for one built on it, and assert on the recorded
   `X-Plex-Token` per call. That is how the per-account invariant gets proved
