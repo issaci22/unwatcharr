@@ -1,0 +1,122 @@
+# Build the image and publish it to GitHub Container Registry.
+#
+#   push to main   -> ghcr.io/<owner>/unwatcharr:latest (+ :main, :sha-<short>)
+#   push tag v2.1.0 -> :2.1.0, :2.1, :2, :latest
+#
+# No secrets to configure: GITHUB_TOKEN is minted per run and only needs
+# `packages: write`. The first successful run creates the package as *private* --
+# make it public once from the repo's Packages page if you want anonymous pulls.
+name: Publish Docker image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+    # Deliberately no path filter: a tag push carries no file diff of its own,
+    # so `paths-ignore` can silently skip a release build. A docs-only rebuild
+    # is cheap -- the layer cache makes it a no-op.
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/unwatcharr
+
+# Superseded builds are pointless -- cancel them, but never cancel a tag build.
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # linux/arm64 emulation. Every dependency is a pure-Python or manylinux
+      # wheel, so nothing compiles under QEMU -- the arm64 leg costs minutes,
+      # not hours.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # metadata-action lowercases the image name for us, so an owner with
+      # capitals in it still produces a valid GHCR reference.
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # latest=auto -> also tagged on a semver release tag.
+          flavor: |
+            latest=auto
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,format=short
+          labels: |
+            org.opencontainers.image.title=Unwatcharr
+            org.opencontainers.image.description=Marks old watched Plex media unwatched again, on a schedule.
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Layer cache lives in the Actions cache, so an unchanged
+          # requirements.txt skips the pip install on every later run.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      # The Dockerfile already fails the build if the app cannot import itself;
+      # this proves the pushed amd64 manifest actually boots and serves /healthz.
+      - name: Smoke test the pushed image
+        run: |
+          set -euo pipefail
+          ref="${{ env.IMAGE }}@${{ steps.build.outputs.digest }}"
+          docker run -d --name smoke -p 8577:8577 \
+            -e PUID=1000 -e PGID=1000 -e TZ=UTC "$ref"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8577/healthz >/dev/null; then
+              echo "healthz OK after ${i}s"; docker rm -f smoke >/dev/null; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::container never answered /healthz"
+          docker logs smoke
+          docker rm -f smoke >/dev/null
+          exit 1
+
+      - name: Summary
+        run: |
+          {
+            echo "### Pushed"
+            echo
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo
+            echo "digest: \`${{ steps.build.outputs.digest }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

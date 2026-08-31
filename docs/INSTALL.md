@@ -5,7 +5,30 @@ Unwatcharr runs as a container next to Plex. It needs one writable directory
 
 ---
 
-## 1. Docker Compose (build from source)
+## 1. Docker Compose (pre-built image, recommended)
+
+Every push to `main` publishes a multi-arch image (amd64 + arm64) to GitHub
+Container Registry, so there is nothing to build and no source checkout to keep.
+
+```bash
+mkdir unwatcharr && cd unwatcharr
+curl -O https://raw.githubusercontent.com/issaci19/unwatcharr/main/docker-compose.prod.yml
+curl -o .env https://raw.githubusercontent.com/issaci19/unwatcharr/main/.env.example
+$EDITOR docker-compose.prod.yml   # set the image owner
+$EDITOR .env                      # set TZ, PUID, PGID
+docker compose -f docker-compose.prod.yml up -d
+```
+
+`docker-compose.prod.yml` has no `build:` block — it points straight at
+`ghcr.io/issaci19/unwatcharr:latest`. Point it at your own owner if you
+forked the repo (the GHCR path is always lowercase), or pin a release such
+as `:2.1.0` if you would rather choose when to move.
+
+Its environment block is `TZ`, `PUID`, `PGID`, `PORT` and `LOG_LEVEL`, plus the
+optional `PLEX_URL`/`PLEX_TOKEN` first-boot seeds — nothing else is read from
+the environment.
+
+## 2. Docker Compose (build from source)
 
 ```bash
 git clone <this repo> && cd Unwatcharr
@@ -21,7 +44,7 @@ is pinned to `8577` in the compose file so it always matches the published
 mapping — if you move the app to another port, change the mapping and `PORT`
 together.
 
-## 2. Docker CLI
+## 3. Docker CLI
 
 ```bash
 docker build -t unwatcharr:latest .
@@ -33,14 +56,21 @@ docker run -d \
   -e PUID=1000 -e PGID=1000 \
   --memory 256m \
   --restart unless-stopped \
-  unwatcharr:latest
+  ghcr.io/issaci19/unwatcharr:latest
 ```
 
-## 3. TrueNAS SCALE
+## 4. TrueNAS SCALE
 
-Use `docker-compose.truenas.yml`. It expects `unwatcharr:latest` to already
-exist on the host — build it once over SSH, or `docker load` an image exported
-elsewhere.
+Easiest path: use `docker-compose.prod.yml` and change the volume to your
+dataset — SCALE pulls the published image and never needs a toolchain.
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+`docker-compose.truenas.yml` is still there for an air-gapped NAS. It expects
+`unwatcharr:latest` to already exist on the host — build it once over SSH, or
+`docker load` an image exported elsewhere.
 
 ```bash
 docker compose -f docker-compose.yml build
@@ -134,8 +164,14 @@ curl http://<host>:8577/healthz
 ## Upgrading the container
 
 ```bash
-docker compose pull        # or: docker compose build --pull
-docker compose up -d
+docker compose -f docker-compose.prod.yml pull   # pre-built image
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Building from source instead:
+
+```bash
+docker compose up -d --build
 ```
 
 The database migrates forward automatically on boot. `/config` is untouched, so

@@ -1,0 +1,50 @@
+# Production compose file -- pulls the pre-built image from GHCR. Nothing is
+# built here, so no source checkout is required: this file plus a writable
+# directory is the whole install.
+#
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# The image is published by .github/workflows/docker-publish.yml on every
+# push to main. Point this elsewhere only if you forked the repo.
+#
+# To update:
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Pin a release instead of :latest if you would rather choose when to move --
+# e.g. ghcr.io/issaci19/unwatcharr:2.1.0
+
+services:
+  unwatcharr:
+    image: ghcr.io/issaci19/unwatcharr:latest
+    container_name: unwatcharr
+    ports:
+      - "8577:8577"
+    volumes:
+      # A host path or a named volume, as long as PUID:PGID can write to it.
+      # On TrueNAS SCALE point this at a dataset, e.g.
+      #   /mnt/tank/apps/unwatcharr:/config
+      - ./config:/config
+    environment:
+      TZ: ${TZ:-America/New_York}
+      # Must match the owner of the directory mounted at /config. `ls -n` on the
+      # host shows the numeric ids; on TrueNAS SCALE `apps` is 568:568.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      # Pinned so it always pairs with the published 8577:8577 mapping --
+      # change both together, or change neither.
+      PORT: "8577"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Optional pre-seeds, applied on FIRST BOOT ONLY -- after that the web UI
+      # owns them and a stale compose file cannot clobber the browser. Leave
+      # both unset and use the setup wizard's plex.tv link code instead.
+      PLEX_URL: ${PLEX_URL:-}
+      PLEX_TOKEN: ${PLEX_TOKEN:-}
+    mem_limit: 256m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8577/healthz',timeout=4)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

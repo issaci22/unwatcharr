@@ -52,7 +52,8 @@ Docker:
 
 ```bash
 docker build -t unwatcharr:latest .
-docker compose up -d
+docker compose up -d                              # builds
+docker compose -f docker-compose.prod.yml up -d   # pulls from GHCR
 ```
 
 No linter or formatter is configured.
@@ -88,8 +89,14 @@ bump. Image is **206 MB**.
 - `docker-entrypoint.sh` chowns `/config` **only when the ownership is actually
   wrong** (a recursive chown every boot is wasted I/O on a NAS), then
   `exec setpriv --reuid --regid --clear-groups`. It no-ops when already non-root.
-- `docker-compose.yml` builds; `docker-compose.truenas.yml` consumes a prebuilt
-  `unwatcharr:latest` and defaults to PUID/PGID `568` (`apps` on SCALE).
+- `docker-compose.yml` builds; `docker-compose.prod.yml` consumes the published
+  `ghcr.io/<owner>/unwatcharr:latest` and is the documented install;
+  `docker-compose.truenas.yml` consumes a locally built `unwatcharr:latest` and
+  defaults to PUID/PGID `568` (`apps` on SCALE), for an air-gapped NAS.
+- `.github/workflows/docker-publish.yml` builds amd64+arm64 on every push to
+  `main` and on `v*.*.*` tags, pushes to GHCR with `GITHUB_TOKEN` (no secrets to
+  configure), then smoke-tests the pushed digest against `/healthz`. It is the
+  only thing that produces a published tag — never `docker push` by hand.
 
 ## The constraint everything is shaped by
 

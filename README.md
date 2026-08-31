@@ -8,7 +8,7 @@ Plex removed plugin support in 2018, so this cannot run inside Plex. It talks to
 the Plex HTTP API from outside, on port `8577`.
 
 ```
-docker compose up -d          # then open http://<host>:8577
+docker compose -f docker-compose.prod.yml up -d   # then open http://<host>:8577
 ```
 
 ---
@@ -40,6 +40,16 @@ date and play count are gone for good. Undo restores "watched", not "watched on
 14 March 2023, four times". Every surface in the app says so.
 
 ## Quick start
+
+Pre-built image (no checkout, no build):
+
+```bash
+curl -O https://raw.githubusercontent.com/issaci19/unwatcharr/main/docker-compose.prod.yml
+$EDITOR docker-compose.prod.yml   # set the image owner, TZ, PUID, PGID
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Or from source:
 
 ```bash
 git clone <this repo> && cd Unwatcharr
