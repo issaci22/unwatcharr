@@ -1,4 +1,4 @@
-# Unwatcharr 2.1
+# Unwatcharr
 
 A sidecar container that marks old watched Plex media **unwatched** again, on a
 schedule, from a web UI — so your library keeps resurfacing things you loved
