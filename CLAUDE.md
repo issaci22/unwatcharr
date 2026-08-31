@@ -52,7 +52,7 @@ Docker:
 
 ```bash
 docker build -t unwatcharr:latest .   # local build; not what users run
-docker compose up -d                  # pulls ghcr.io/issaci19/unwatcharr:latest
+docker compose up -d                  # pulls ghcr.io/issaci22/unwatcharr:latest
 ```
 
 No linter or formatter is configured.
@@ -89,7 +89,7 @@ bump. Image is **206 MB**.
   wrong** (a recursive chown every boot is wasted I/O on a NAS), then
   `exec setpriv --reuid --regid --clear-groups`. It no-ops when already non-root.
 - **One compose file: `docker-compose.yaml`.** It pulls
-  `ghcr.io/issaci19/unwatcharr:latest` and never builds. The build, TrueNAS and
+  `ghcr.io/issaci22/unwatcharr:latest` and never builds. The build, TrueNAS and
   prod variants were deleted — TrueNAS is now a two-line diff (dataset path,
   PUID/PGID 568) documented in INSTALL, and a local build means editing the
   `image:` line. README and `docs/INSTALL.md` embed this file's contents as a

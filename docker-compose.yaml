@@ -9,14 +9,14 @@
 #
 # The image is published by .github/workflows/docker-publish.yml on every push
 # to main. Pin a release instead of :latest if you would rather choose when to
-# move -- e.g. ghcr.io/issaci19/unwatcharr:2.1.0
+# move -- e.g. ghcr.io/issaci22/unwatcharr:2.1.0
 #
 # To build from source instead: `docker build -t unwatcharr:latest .` and
 # change the image line below to `unwatcharr:latest`.
 
 services:
   unwatcharr:
-    image: ghcr.io/issaci19/unwatcharr:latest
+    image: ghcr.io/issaci22/unwatcharr:latest
     container_name: unwatcharr
     ports:
       - "8577:8577"

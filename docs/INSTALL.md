@@ -15,7 +15,7 @@ Save this as `docker-compose.yaml`:
 ```yaml
 services:
   unwatcharr:
-    image: ghcr.io/issaci19/unwatcharr:latest
+    image: ghcr.io/issaci22/unwatcharr:latest
     container_name: unwatcharr
     ports:
       - "8577:8577"
@@ -91,7 +91,7 @@ There is one compose file and it pulls the published image. To run your own
 build, build the image and point the `image:` line at it:
 
 ```bash
-git clone https://github.com/issaci19/unwatcharr.git && cd unwatcharr
+git clone https://github.com/issaci22/unwatcharr.git && cd unwatcharr
 docker build -t unwatcharr:latest .
 $EDITOR docker-compose.yaml        # image: unwatcharr:latest
 docker compose up -d
@@ -103,7 +103,15 @@ somewhere with internet, `docker save` the image, `docker load` it on the target
 ## 3. Docker CLI
 
 ```bash
-docker run -d   --name unwatcharr   -p 8577:8577   -v /path/on/host/unwatcharr:/config   -e TZ=America/New_York   -e PUID=1000 -e PGID=1000   --memory 256m   --restart unless-stopped   ghcr.io/issaci19/unwatcharr:latest
+docker run -d \
+  --name unwatcharr \
+  -p 8577:8577 \
+  -v /path/on/host/unwatcharr:/config \
+  -e TZ=America/New_York \
+  -e PUID=1000 -e PGID=1000 \
+  --memory 256m \
+  --restart unless-stopped \
+  ghcr.io/issaci22/unwatcharr:latest
 ```
 
 ## 4. TrueNAS SCALE

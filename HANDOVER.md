@@ -54,8 +54,8 @@ design:
                 every selector the preview script reaches for exists.
 repo:
   branch: main -> origin/main (pushed)
-  remote: https://github.com/IssacI19/unwatcharr.git
-          (github.com/issaci19/... redirects; the account renders as IssacI19)
+  remote: https://github.com/issaci22/unwatcharr.git
+          (renamed from issaci19 on 2026-08-30; the old path 301-redirects)
   commits: e222b9f initial release · f0eedcb GHCR pipeline · 1872cfb single
            docker-compose.yaml
   gitignore_verified: .venv/ .env config/ __pycache__/ .pytest_cache/ *.db*
@@ -82,7 +82,7 @@ packaging:
                PLEX_URL / PLEX_TOKEN. No legacy v1 migration variables exist.
 
 manual_steps_still_required:
-  - Make the GHCR package public (github.com/users/IssacI19/packages) after the
+  - Make the GHCR package public (github.com/users/issaci22/packages) after the
     first workflow run, or the documented `docker compose up -d` fails for
     everyone but the owner.
   - Add a LICENSE file: the workflow stamps image.licenses=MIT, none exists.
@@ -170,7 +170,7 @@ tests/e2e/conftest.py    session mock+app subprocess, per-test reset, wait_for_r
 tests/e2e/test_e2e.py    50 tests
 Dockerfile               single-stage, setpriv check, import check, HEALTHCHECK
 docker-entrypoint.sh     PUID/PGID, conditional chown, setpriv drop
-docker-compose.yaml      THE ONLY COMPOSE FILE: pulls ghcr.io/issaci19/
+docker-compose.yaml      THE ONLY COMPOSE FILE: pulls ghcr.io/issaci22/
                          unwatcharr:latest, no build block. The prod/dev/truenas
                          variants were deleted (history: f0eedcb).
 .github/workflows/docker-publish.yml  amd64+arm64 -> GHCR on push to main + v tags

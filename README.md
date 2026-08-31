@@ -46,7 +46,7 @@ Save this as `docker-compose.yaml`:
 ```yaml
 services:
   unwatcharr:
-    image: ghcr.io/issaci19/unwatcharr:latest
+    image: ghcr.io/issaci22/unwatcharr:latest
     container_name: unwatcharr
     ports:
       - "8577:8577"
