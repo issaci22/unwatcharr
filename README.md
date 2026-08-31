@@ -95,7 +95,6 @@ Full instructions: [docs/INSTALL.md](docs/INSTALL.md).
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Every environment variable and every setting |
 | [docs/UPGRADING.md](docs/UPGRADING.md) | Importing a Plex-Unwatcher v1 database |
 | [docs/API.md](docs/API.md) | The complete JSON API contract |
-| [docs/PROJECT-BRIEF.md](docs/PROJECT-BRIEF.md) | The original product brief |
 | [CLAUDE.md](CLAUDE.md) | Engineering guide / architecture |
 
 ## Architecture in one screen
