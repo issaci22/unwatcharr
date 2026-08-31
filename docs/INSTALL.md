@@ -5,79 +5,110 @@ Unwatcharr runs as a container next to Plex. It needs one writable directory
 
 ---
 
-## 1. Docker Compose (pre-built image, recommended)
+## 1. Docker Compose (recommended)
 
 Every push to `main` publishes a multi-arch image (amd64 + arm64) to GitHub
 Container Registry, so there is nothing to build and no source checkout to keep.
 
-```bash
-mkdir unwatcharr && cd unwatcharr
-curl -O https://raw.githubusercontent.com/issaci19/unwatcharr/main/docker-compose.prod.yml
-curl -o .env https://raw.githubusercontent.com/issaci19/unwatcharr/main/.env.example
-$EDITOR docker-compose.prod.yml   # set the image owner
-$EDITOR .env                      # set TZ, PUID, PGID
-docker compose -f docker-compose.prod.yml up -d
+Save this as `docker-compose.yaml`:
+
+```yaml
+services:
+  unwatcharr:
+    image: ghcr.io/issaci19/unwatcharr:latest
+    container_name: unwatcharr
+    ports:
+      - "8577:8577"
+    volumes:
+      # A host path or a named volume, as long as PUID:PGID can write to it.
+      # On TrueNAS SCALE point this at a dataset, e.g.
+      #   /mnt/tank/apps/unwatcharr:/config
+      - ./config:/config
+    environment:
+      TZ: ${TZ:-America/New_York}
+      # Must match the owner of the directory mounted at /config. `ls -n` on the
+      # host shows the numeric ids; on TrueNAS SCALE `apps` is 568:568.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      # Pinned so it always pairs with the published 8577:8577 mapping --
+      # change both together, or change neither.
+      PORT: "8577"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Optional pre-seeds, applied on FIRST BOOT ONLY -- after that the web UI
+      # owns them and a stale compose file cannot clobber the browser. Leave
+      # both unset and use the setup wizard's plex.tv link code instead.
+      PLEX_URL: ${PLEX_URL:-}
+      PLEX_TOKEN: ${PLEX_TOKEN:-}
+    mem_limit: 256m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8577/healthz',timeout=4)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 ```
 
-`docker-compose.prod.yml` has no `build:` block — it points straight at
-`ghcr.io/issaci19/unwatcharr:latest`. Point it at your own owner if you
-forked the repo (the GHCR path is always lowercase), or pin a release such
-as `:2.1.0` if you would rather choose when to move.
-
-Its environment block is `TZ`, `PUID`, `PGID`, `PORT` and `LOG_LEVEL`, plus the
-optional `PLEX_URL`/`PLEX_TOKEN` first-boot seeds — nothing else is read from
-the environment.
-
-## 2. Docker Compose (build from source)
+Then, in the same directory:
 
 ```bash
-git clone <this repo> && cd Unwatcharr
-cp .env.example .env
-$EDITOR .env                  # set TZ, PUID, PGID
-docker compose up -d --build
+docker compose up -d
 ```
 
-`docker-compose.yml` builds the image, bind-mounts `./config`, and publishes
-`8577:8577`. Its environment block is `TZ`, `PUID`, `PGID`, `PORT` and
-`LOG_LEVEL`, plus the optional `PLEX_URL`/`PLEX_TOKEN` first-boot seeds. `PORT`
-is pinned to `8577` in the compose file so it always matches the published
+That is the whole install. Open `http://<host>:8577`.
+
+Two values are worth setting before the first boot:
+
+- **`PUID`/`PGID`** must match the owner of the directory mounted at `/config`,
+  or the app cannot write its database. `ls -n` on the host shows the numeric
+  ids.
+- **`TZ`** drives the scheduler and every timestamp in the UI.
+
+Either edit them directly in the file, or put them in a `.env` file next to it —
+the defaults above read from the environment. The settings template lists every
+variable with an explanation:
+
+```bash
+cp .env.example .env      # from the repository, if you have a checkout
+$EDITOR .env
+```
+
+`PORT` is pinned to `8577` so it always matches the published `8577:8577`
 mapping — if you move the app to another port, change the mapping and `PORT`
-together.
+together. Nothing else is read from the environment: `PLEX_URL` and
+`PLEX_TOKEN` are optional first-boot seeds, and the setup wizard can discover
+both without them.
+
+To update:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+## 2. Build from source
+
+There is one compose file and it pulls the published image. To run your own
+build, build the image and point the `image:` line at it:
+
+```bash
+git clone https://github.com/issaci19/unwatcharr.git && cd unwatcharr
+docker build -t unwatcharr:latest .
+$EDITOR docker-compose.yaml        # image: unwatcharr:latest
+docker compose up -d
+```
+
+This is also how you get Unwatcharr onto an air-gapped machine: build it
+somewhere with internet, `docker save` the image, `docker load` it on the target.
 
 ## 3. Docker CLI
 
 ```bash
-docker build -t unwatcharr:latest .
-docker run -d \
-  --name unwatcharr \
-  -p 8577:8577 \
-  -v /path/on/host/unwatcharr:/config \
-  -e TZ=America/New_York \
-  -e PUID=1000 -e PGID=1000 \
-  --memory 256m \
-  --restart unless-stopped \
-  ghcr.io/issaci19/unwatcharr:latest
+docker run -d   --name unwatcharr   -p 8577:8577   -v /path/on/host/unwatcharr:/config   -e TZ=America/New_York   -e PUID=1000 -e PGID=1000   --memory 256m   --restart unless-stopped   ghcr.io/issaci19/unwatcharr:latest
 ```
 
 ## 4. TrueNAS SCALE
 
-Easiest path: use `docker-compose.prod.yml` and change the volume to your
-dataset — SCALE pulls the published image and never needs a toolchain.
-
-```bash
-docker compose -f docker-compose.prod.yml up -d
-```
-
-`docker-compose.truenas.yml` is still there for an air-gapped NAS. It expects
-`unwatcharr:latest` to already exist on the host — build it once over SSH, or
-`docker load` an image exported elsewhere.
-
-```bash
-docker compose -f docker-compose.yml build
-docker compose -f docker-compose.truenas.yml up -d
-```
-
-Two things to get right:
+Use the compose file from section 1 with two changes:
 
 - **The dataset.** Point the volume at a real dataset, e.g.
   `/mnt/tank/apps/unwatcharr:/config`.
@@ -88,7 +119,7 @@ Getting PUID/PGID wrong is the single most common cause of a container that
 will not start: the app cannot write its database and says so, in plain words,
 in the log.
 
-## 4. Without Docker
+## 5. Without Docker
 
 ```bash
 python -m venv .venv
@@ -164,14 +195,8 @@ curl http://<host>:8577/healthz
 ## Upgrading the container
 
 ```bash
-docker compose -f docker-compose.prod.yml pull   # pre-built image
-docker compose -f docker-compose.prod.yml up -d
-```
-
-Building from source instead:
-
-```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 The database migrates forward automatically on boot. `/config` is untouched, so

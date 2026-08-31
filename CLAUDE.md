@@ -51,9 +51,8 @@ Mock Plex standalone:
 Docker:
 
 ```bash
-docker build -t unwatcharr:latest .
-docker compose up -d                              # builds
-docker compose -f docker-compose.prod.yml up -d   # pulls from GHCR
+docker build -t unwatcharr:latest .   # local build; not what users run
+docker compose up -d                  # pulls ghcr.io/issaci19/unwatcharr:latest
 ```
 
 No linter or formatter is configured.
@@ -89,10 +88,13 @@ bump. Image is **206 MB**.
 - `docker-entrypoint.sh` chowns `/config` **only when the ownership is actually
   wrong** (a recursive chown every boot is wasted I/O on a NAS), then
   `exec setpriv --reuid --regid --clear-groups`. It no-ops when already non-root.
-- `docker-compose.yml` builds; `docker-compose.prod.yml` consumes the published
-  `ghcr.io/<owner>/unwatcharr:latest` and is the documented install;
-  `docker-compose.truenas.yml` consumes a locally built `unwatcharr:latest` and
-  defaults to PUID/PGID `568` (`apps` on SCALE), for an air-gapped NAS.
+- **One compose file: `docker-compose.yaml`.** It pulls
+  `ghcr.io/issaci19/unwatcharr:latest` and never builds. The build, TrueNAS and
+  prod variants were deleted — TrueNAS is now a two-line diff (dataset path,
+  PUID/PGID 568) documented in INSTALL, and a local build means editing the
+  `image:` line. README and `docs/INSTALL.md` embed this file's contents as a
+  copy-paste block, so **any edit to it must be mirrored into both** — that is
+  the one place the docs can silently drift from the tree.
 - `.github/workflows/docker-publish.yml` builds amd64+arm64 on every push to
   `main` and on `v*.*.*` tags, pushes to GHCR with `GITHUB_TOKEN` (no secrets to
   configure), then smoke-tests the pushed digest against `/healthz`. It is the

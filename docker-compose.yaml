@@ -1,18 +1,18 @@
-# Production compose file -- pulls the pre-built image from GHCR. Nothing is
-# built here, so no source checkout is required: this file plus a writable
-# directory is the whole install.
+# Unwatcharr -- the standard install. Pulls the pre-built image from GHCR, so
+# nothing is built and no source checkout is required: this file plus a
+# writable directory is the whole install.
 #
-#   docker compose -f docker-compose.prod.yml up -d
-#
-# The image is published by .github/workflows/docker-publish.yml on every
-# push to main. Point this elsewhere only if you forked the repo.
+#   docker compose up -d
 #
 # To update:
-#   docker compose -f docker-compose.prod.yml pull
-#   docker compose -f docker-compose.prod.yml up -d
+#   docker compose pull && docker compose up -d
 #
-# Pin a release instead of :latest if you would rather choose when to move --
-# e.g. ghcr.io/issaci19/unwatcharr:2.1.0
+# The image is published by .github/workflows/docker-publish.yml on every push
+# to main. Pin a release instead of :latest if you would rather choose when to
+# move -- e.g. ghcr.io/issaci19/unwatcharr:2.1.0
+#
+# To build from source instead: `docker build -t unwatcharr:latest .` and
+# change the image line below to `unwatcharr:latest`.
 
 services:
   unwatcharr:

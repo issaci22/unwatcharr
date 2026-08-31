@@ -8,7 +8,7 @@ Plex removed plugin support in 2018, so this cannot run inside Plex. It talks to
 the Plex HTTP API from outside, on port `8577`.
 
 ```
-docker compose -f docker-compose.prod.yml up -d   # then open http://<host>:8577
+docker compose up -d          # then open http://<host>:8577
 ```
 
 ---
@@ -41,20 +41,51 @@ date and play count are gone for good. Undo restores "watched", not "watched on
 
 ## Quick start
 
-Pre-built image (no checkout, no build):
+Save this as `docker-compose.yaml`:
 
-```bash
-curl -O https://raw.githubusercontent.com/issaci19/unwatcharr/main/docker-compose.prod.yml
-$EDITOR docker-compose.prod.yml   # set the image owner, TZ, PUID, PGID
-docker compose -f docker-compose.prod.yml up -d
+```yaml
+services:
+  unwatcharr:
+    image: ghcr.io/issaci19/unwatcharr:latest
+    container_name: unwatcharr
+    ports:
+      - "8577:8577"
+    volumes:
+      # A host path or a named volume, as long as PUID:PGID can write to it.
+      # On TrueNAS SCALE point this at a dataset, e.g.
+      #   /mnt/tank/apps/unwatcharr:/config
+      - ./config:/config
+    environment:
+      TZ: ${TZ:-America/New_York}
+      # Must match the owner of the directory mounted at /config. `ls -n` on the
+      # host shows the numeric ids; on TrueNAS SCALE `apps` is 568:568.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      # Pinned so it always pairs with the published 8577:8577 mapping --
+      # change both together, or change neither.
+      PORT: "8577"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Optional pre-seeds, applied on FIRST BOOT ONLY -- after that the web UI
+      # owns them and a stale compose file cannot clobber the browser. Leave
+      # both unset and use the setup wizard's plex.tv link code instead.
+      PLEX_URL: ${PLEX_URL:-}
+      PLEX_TOKEN: ${PLEX_TOKEN:-}
+    mem_limit: 256m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8577/healthz',timeout=4)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 ```
 
-Or from source:
+Set `TZ` and `PUID`/`PGID` to match the owner of the directory you mount at
+`/config` (`ls -n` shows the numeric ids), either in the file or in a `.env`
+beside it — [`.env.example`](.env.example) documents every variable. Then:
 
 ```bash
-git clone <this repo> && cd Unwatcharr
-cp .env.example .env        # edit TZ, PUID, PGID
-docker compose up -d --build
+docker compose up -d
 ```
 
 Open `http://<host>:8577`, run the setup wizard (sign in with a plex.tv link
