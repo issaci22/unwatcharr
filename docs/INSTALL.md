@@ -1,7 +1,37 @@
-# Installing Unwatcharr
+# Unwatcharr — Installation
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo-light.svg" width="64" height="64" alt="Unwatcharr">
+  </picture>
+</p>
+
+<p align="center">
+  <strong>One writable directory. One port. One compose file.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/issaci22/unwatcharr/pkgs/container/unwatcharr"><img alt="Docker image" src="https://img.shields.io/badge/ghcr.io-issaci22%2Funwatcharr-2496ed?style=flat-square&logo=docker&logoColor=white"></a>
+  <img alt="Container profile" src="https://img.shields.io/badge/Image-206%20MB-22c55e?style=flat-square">
+  <img alt="Platform" src="https://img.shields.io/badge/Platform-linux%2Famd64%20%C2%B7%20arm64-475569?style=flat-square">
+  <img alt="Engine" src="https://img.shields.io/badge/Python-3.12-3776ab?style=flat-square&logo=python&logoColor=white">
+  <img alt="Port" src="https://img.shields.io/badge/Port-8577-8b5cf6?style=flat-square">
+</p>
+
+<p align="center">
+  <a href="#1-docker-compose-recommended">Compose</a> ·
+  <a href="#2-build-from-source">From source</a> ·
+  <a href="#3-docker-cli">Docker CLI</a> ·
+  <a href="#4-truenas-scale">TrueNAS SCALE</a> ·
+  <a href="#5-without-docker">Bare metal</a> ·
+  <a href="#troubleshooting">Troubleshooting</a>
+</p>
+
+---
 
 Unwatcharr runs as a container next to Plex. It needs one writable directory
-(`/config`) and one port (`8577`).
+(`/config`) and one port (`8577`). Everything else is configured in the browser.
 
 ---
 
@@ -11,6 +41,66 @@ Every push to `main` publishes a multi-arch image (amd64 + arm64) to GitHub
 Container Registry, so there is nothing to build and no source checkout to keep.
 
 Save this as `docker-compose.yaml`:
+
+```yaml
+services:
+  unwatcharr:
+    image: ghcr.io/issaci22/unwatcharr:latest
+    container_name: unwatcharr
+    environment:
+      TZ: America/New_York
+      PUID: 1000
+      PGID: 1000
+    volumes:
+      - ./config:/config
+    ports:
+      - "8577:8577"
+    restart: unless-stopped
+```
+
+Then, in the same directory:
+
+```bash
+docker compose up -d
+```
+
+That is the whole install. Open `http://<host>:8577`.
+
+### Environment variables
+
+| Variable | Default | Required | What it does |
+|---|---|:---:|---|
+| `TZ` | `UTC` | Recommended | Drives the scheduler and every timestamp in the UI. Resolved through `timeutil.resolve()`; an unknown zone logs a warning and falls back to the system default rather than raising. |
+| `PUID` | `1000` | Recommended | Numeric UID the container drops to. **Must match the owner of the directory mounted at `/config`**, or the app cannot write its database. `ls -n` on the host shows the numeric ids. |
+| `PGID` | `1000` | Recommended | Numeric GID, paired with `PUID`. Same rule, same failure mode. On TrueNAS SCALE the `apps` user is usually `568:568`. |
+| `PORT` | `8577` | No | The in-container listen port. **Pinned to the published mapping** — if you move the app to another port, change the mapping *and* `PORT` together. |
+| `LOG_LEVEL` | `info` | No | `debug` \| `info` \| `warning` \| `error`. |
+| `CONFIG_DIR` | `/config` | No | Database at `$CONFIG_DIR/unwatcharr.db`, logs at `$CONFIG_DIR/logs`. Rarely worth changing inside the container. |
+| `PLEX_URL` | — | No | First-boot seed only. Leave it unset and use the setup wizard's plex.tv link code. |
+| `PLEX_TOKEN` | — | No | First-boot seed only, consumed by `store.ensure_bootstrap()`. |
+
+> **First-boot seeds, not live config.** `PLEX_URL` and `PLEX_TOKEN` apply on the
+> very first boot and never again — after that the web UI owns them and a stale
+> compose file cannot clobber what you set in the browser. Everything else a user
+> can change lives in the settings table and survives a recreate.
+
+### Port bindings
+
+| Host | Container | Protocol | Purpose |
+|---|---|---|---|
+| `8577` | `8577` | TCP/HTTP | Web UI, the JSON API, and the unauthenticated `/healthz` probe. |
+
+Two values are worth setting before the first boot: **`PUID`/`PGID`**, which must
+own `/config`, and **`TZ`**, which drives the scheduler. Either edit them directly
+in the file, or put them in a `.env` file next to it:
+
+```bash
+cp .env.example .env      # from the repository, if you have a checkout
+$EDITOR .env
+```
+
+<details>
+<summary><strong>Full annotated compose file</strong> — every optional variable, mirrored from <code>docker-compose.yaml</code></summary>
 
 ```yaml
 services:
@@ -42,41 +132,15 @@ services:
     restart: unless-stopped
 ```
 
-Then, in the same directory:
-
-```bash
-docker compose up -d
-```
-
-That is the whole install. Open `http://<host>:8577`.
-
-Two values are worth setting before the first boot:
-
-- **`PUID`/`PGID`** must match the owner of the directory mounted at `/config`,
-  or the app cannot write its database. `ls -n` on the host shows the numeric
-  ids.
-- **`TZ`** drives the scheduler and every timestamp in the UI.
-
-Either edit them directly in the file, or put them in a `.env` file next to it —
-the defaults above read from the environment. The settings template lists every
-variable with an explanation:
-
-```bash
-cp .env.example .env      # from the repository, if you have a checkout
-$EDITOR .env
-```
-
-`PORT` is pinned to `8577` so it always matches the published `8577:8577`
-mapping — if you move the app to another port, change the mapping and `PORT`
-together. Nothing else is read from the environment: `PLEX_URL` and
-`PLEX_TOKEN` are optional first-boot seeds, and the setup wizard can discover
-both without them.
+</details>
 
 To update:
 
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+---
 
 ## 2. Build from source
 
@@ -93,6 +157,8 @@ docker compose up -d
 This is also how you get Unwatcharr onto an air-gapped machine: build it
 somewhere with internet, `docker save` the image, `docker load` it on the target.
 
+---
+
 ## 3. Docker CLI
 
 ```bash
@@ -107,18 +173,22 @@ docker run -d \
   ghcr.io/issaci22/unwatcharr:latest
 ```
 
+---
+
 ## 4. TrueNAS SCALE
 
 Use the compose file from section 1 with two changes:
 
-- **The dataset.** Point the volume at a real dataset, e.g.
-  `/mnt/tank/apps/unwatcharr:/config`.
-- **PUID/PGID.** On TrueNAS SCALE the `apps` user is usually **568:568**. Run
-  `ls -n` on the parent directory to see the numeric owner and match it.
+| Change | Value |
+|---|---|
+| **The dataset** | Point the volume at a real dataset, e.g. `/mnt/tank/apps/unwatcharr:/config` |
+| **PUID / PGID** | The `apps` user is usually **568:568**. Run `ls -n` on the parent directory to see the numeric owner and match it. |
 
-Getting PUID/PGID wrong is the single most common cause of a container that
-will not start: the app cannot write its database and says so, in plain words,
-in the log.
+Getting PUID/PGID wrong is the single most common cause of a container that will
+not start: the app cannot write its database and says so, in plain words, in the
+log.
+
+---
 
 ## 5. Without Docker
 
@@ -137,9 +207,9 @@ worker would run your rules twice.
 ## PUID / PGID and the config volume
 
 The entrypoint starts as root, ensures `/config` exists, and chowns it to
-`PUID:PGID` **only when the ownership is actually wrong** (recursively chowning
-a large directory on every boot is wasted I/O on a NAS). It then drops
-privileges with `setpriv --reuid --regid --clear-groups` and execs the app.
+`PUID:PGID` **only when the ownership is actually wrong** (recursively chowning a
+large directory on every boot is wasted I/O on a NAS). It then drops privileges
+with `setpriv --reuid --regid --clear-groups` and execs the app.
 
 If the container is already started as a non-root user (compose `user:`), the
 entrypoint skips all of that and execs immediately.
@@ -148,7 +218,7 @@ If the chown fails, you get a warning telling you to fix the host directory's
 ownership yourself. The app will then fail to open its database, and the error
 text names PUID/PGID explicitly.
 
-## What lives in /config
+### What lives in /config
 
 ```
 /config/unwatcharr.db     SQLite database: settings, rules, users, runs, history
@@ -158,7 +228,7 @@ text names PUID/PGID explicitly.
 Back up `unwatcharr.db` and you have backed up everything. Deleting the volume
 resets the app to a fresh setup wizard.
 
-## Health check
+### Health check
 
 ```bash
 curl http://<host>:8577/healthz
@@ -171,24 +241,26 @@ curl http://<host>:8577/healthz
 
 ## First run
 
-1. Open `http://<host>:8577`.
-2. **Connect to Plex.** The recommended path is the plex.tv link code: the
-   wizard shows a short code, you approve it at `plex.tv/link`, and it lists the
-   servers on your account. Pick one and it probes every address Plex advertises
-   for it until one answers from inside the container.
+1. **Open `http://<host>:8577`.**
+2. **Connect to Plex.** The recommended path is the plex.tv link code: the wizard
+   shows a short code, you approve it at `plex.tv/link`, and it lists the servers
+   on your account. Pick one and it probes every address Plex advertises for it
+   until one answers from inside the container.
    - If none are reachable (common when Plex uses host networking and the
-     advertised addresses are container-internal), use the manual option and
-     give it a LAN address such as `http://192.168.1.10:32400` plus a token.
-3. **Link your users.** Owner, Plex Home and managed users can be linked
+     advertised addresses are container-internal), use the manual option and give
+     it a LAN address such as `http://192.168.1.10:32400` plus a token.
+3. **Link your users.** Owner, Plex Home and managed users are linked
    automatically — Unwatcharr mints a server-scoped token for them. Shared users
-   *cannot*: Plex offers no admin route to a shared user's token, so you must
+   *cannot* be: Plex offers no admin route to a shared user's token, so you must
    paste one. A user without a working token is simply left alone.
 4. **Set a UI password.** Until you do, anyone who can reach port 8577 can change
    your Plex watch history. The dashboard nags you about this.
 5. **Write a rule**, then **preview it** against a real user. Read the skip
-   reasons. They tell you exactly why each item was left alone.
+   reasons — they tell you exactly why each item was left alone.
 6. **Turn safe mode off** only once a preview showed you what you expected. It
    needs an explicit confirmation.
+
+---
 
 ## Upgrading the container
 
@@ -202,13 +274,23 @@ every setting, rule and history row survives a recreate. Environment variables
 like `PLEX_URL`/`PLEX_TOKEN` are **first-boot seeds only** — a stale compose file
 can never clobber what you configured in the browser.
 
+---
+
 ## Troubleshooting
 
 | Symptom | Cause |
 |---|---|
 | Container exits at boot, log mentions PUID/PGID | `/config` is not writable by `PUID:PGID`. Fix ownership on the host. |
-| "None of the addresses Plex lists ... could be reached" | Plex's advertised addresses are not routable from the container. Use the manual setup option with a LAN IP. |
+| "None of the addresses Plex lists … could be reached" | Plex's advertised addresses are not routable from the container. Use the manual setup option with a LAN IP. |
 | A user is never touched by any run | They have no working token. Check the Users page for `token_status`. |
 | A run says it applied nothing | Safe mode is on (by design), or no rule matched. Check the run detail's skip reasons. |
 | Schedule change did not take effect | It should — every settings save reschedules. If not, check `schedule_enabled` and the Status panel's `next_run_at`. |
 | Timestamps are wrong | `TZ` is unset or unknown. An unknown zone logs a warning and falls back to the system default. |
+
+---
+
+<p align="center">
+  <a href="../README.md">← Back to the README</a> ·
+  <a href="CONFIGURATION.md">Configuration reference</a> ·
+  <a href="API.md">JSON API contract</a>
+</p>
