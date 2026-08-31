@@ -9,13 +9,20 @@ reference_readonly: D:\Documents\Claude Projects\Plex-Unwatcher
 plan: C:\Users\IssacPC\.claude\plans\use-the-claude-md-file-wiggly-quiche.md
 version: 2.1.0
 updated: 2026-08-30 (backend frozen — 140/140 unit, 50/50 e2e, image 206MB;
-         DESIGN blocks 1-8 of 10 complete)
+         DESIGN COMPLETE 10/10; repo initialised, GHCR pipeline live, compose
+         collapsed to a single docker-compose.yaml)
+
+NOTE: this file was restored from an older on-disk copy at least twice during
+the packaging session — a rewrite covering the repo/CI work was silently
+reverted before it could be committed. If the state below contradicts the tree,
+the tree wins.
 
 milestone:
   phases: [A_foundation, B_plex, C_engine, D_services, E_web, F_docker, G_tests, H_docs]
   complete: [A_foundation, B_plex, C_engine, D_services, E_web, F_docker, G_tests, H_docs]
-  current: BACKEND FROZEN. /design phase in progress.
-  next: design block 9 — setup wizard.
+  current: BACKEND FROZEN. /design phase COMPLETE. Repo + CI packaging done.
+  next: nothing outstanding in the build. Open items are operational, listed
+        under `manual_steps_still_required`.
   ui_policy: SUPERSEDED. The /design phase is running now, so the UI is no longer
              disposable. The JSON API is still the single contract and is frozen.
 
@@ -37,14 +44,49 @@ design:
     6_history_runs_actions_undo: COMPLETE
     7_logs: COMPLETE
     8_settings: COMPLETE
-    9_setup_wizard: pending
-    10_login_empty_and_error_states: pending
+    9_setup_wizard: COMPLETE
+    10_login_empty_and_error_states: COMPLETE
   verified_after_block_5: 140/140 unit, 50/50 e2e, 105 template/markup/API checks
   verified_after_block_8: 140/140 unit, 50/50 e2e, 171 template/markup/leak checks
   seed_harness: session scratchpad only, never kept in the repo. The block-4
                 harness seeds a throwaway db (2 users incl. a hostile name, 2
                 libraries, 1 rule), signs in with a real scrypt hash and asserts
                 every selector the preview script reaches for exists.
+repo:
+  branch: main -> origin/main (pushed)
+  remote: https://github.com/IssacI19/unwatcharr.git
+          (github.com/issaci19/... redirects; the account renders as IssacI19)
+  commits: e222b9f initial release · f0eedcb GHCR pipeline · 1872cfb single
+           docker-compose.yaml
+  gitignore_verified: .venv/ .env config/ __pycache__/ .pytest_cache/ *.db*
+  identity: repo-local IssacPC <issacthrowaway69@gmail.com> (no global identity)
+  gh_cli: NOT INSTALLED. No repo or package administration from this machine.
+  incidents: HEAD was found detached at f0eedcb with the `main` ref missing
+             (recreated with `git checkout -B main`); HANDOVER.md was reverted
+             to an older copy on disk more than once. Something outside this
+             session writes to the workspace — re-read before trusting state.
+
+packaging:
+  workflow: .github/workflows/docker-publish.yml
+    triggers: push to main, tags v*.*.*, workflow_dispatch (no path filter --
+              a tag push carries no diff, so paths-ignore can skip a release)
+    auth: GITHUB_TOKEN + packages:write. NO SECRETS TO CONFIGURE.
+    tags: latest, branch, {{version}}, {{major}}.{{minor}}, {{major}}, sha-short
+    platforms: linux/amd64, linux/arm64 (QEMU; all deps are pure-python or
+               manylinux wheels, so nothing compiles under emulation)
+    cache: type=gha mode=max · smoke test runs the pushed DIGEST against /healthz
+  docs_embed_compose: README.md and docs/INSTALL.md paste docker-compose.yaml's
+                      body verbatim in a ```yaml block. EDIT ALL THREE TOGETHER
+                      -- this is the one place the docs can drift from the tree.
+  env_surface: TZ, PUID, PGID, PORT="8577", LOG_LEVEL + first-boot-only
+               PLEX_URL / PLEX_TOKEN. No legacy v1 migration variables exist.
+
+manual_steps_still_required:
+  - Make the GHCR package public (github.com/users/IssacI19/packages) after the
+    first workflow run, or the documented `docker compose up -d` fails for
+    everyone but the owner.
+  - Add a LICENSE file: the workflow stamps image.licenses=MIT, none exists.
+
 env:
   venv: .venv (deps installed)
   python: 3.12.10 · fastapi 0.141.1 · starlette 1.6.0
@@ -128,8 +170,10 @@ tests/e2e/conftest.py    session mock+app subprocess, per-test reset, wait_for_r
 tests/e2e/test_e2e.py    50 tests
 Dockerfile               single-stage, setpriv check, import check, HEALTHCHECK
 docker-entrypoint.sh     PUID/PGID, conditional chown, setpriv drop
-docker-compose.yml       build-from-source
-docker-compose.truenas.yml prebuilt image, PUID/PGID 568
+docker-compose.yaml      THE ONLY COMPOSE FILE: pulls ghcr.io/issaci19/
+                         unwatcharr:latest, no build block. The prod/dev/truenas
+                         variants were deleted (history: f0eedcb).
+.github/workflows/docker-publish.yml  amd64+arm64 -> GHCR on push to main + v tags
 .env.example             every env var, commented
 README.md                front door
 docs/INSTALL.md          docker/truenas/bare metal, first run, troubleshooting
