@@ -21,8 +21,8 @@ Unwatcharr splits configuration in two, deliberately.
 | `PORT` | `8577` | Non-integer values fall back to 8577. |
 | `TZ` | `UTC` | tz database name, e.g. `Europe/London`. Unknown ⇒ warning + system default, never a crash. |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warning` \| `error`. Anything else ⇒ `info`. |
-| `PUID` | `1000` | Owner uid for `/config`. Entrypoint only. |
-| `PGID` | `1000` | Owner gid for `/config`. Entrypoint only. |
+| `PUID` | `568` | Owner uid for `/config`. Entrypoint only. |
+| `PGID` | `568` | Owner gid for `/config`. Entrypoint only. |
 
 ### First-boot seeds
 
