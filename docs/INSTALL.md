@@ -49,8 +49,8 @@ services:
     container_name: unwatcharr
     environment:
       TZ: America/New_York
-      PUID: 1000
-      PGID: 1000
+      PUID: 568
+      PGID: 568
     volumes:
       - ./config:/config
     ports:
@@ -71,8 +71,8 @@ That is the whole install. Open `http://<host>:8577`.
 | Variable | Default | Required | What it does |
 |---|---|:---:|---|
 | `TZ` | `UTC` | Recommended | Drives the scheduler and every timestamp in the UI. Resolved through `timeutil.resolve()`; an unknown zone logs a warning and falls back to the system default rather than raising. |
-| `PUID` | `1000` | Recommended | Numeric UID the container drops to. **Must match the owner of the directory mounted at `/config`**, or the app cannot write its database. `ls -n` on the host shows the numeric ids. |
-| `PGID` | `1000` | Recommended | Numeric GID, paired with `PUID`. Same rule, same failure mode. On TrueNAS SCALE the `apps` user is usually `568:568`. |
+| `PUID` | `568` | Recommended | Numeric UID the container drops to. **Must match the owner of the directory mounted at `/config`**, or the app cannot write its database. `ls -n` on the host shows the numeric ids. |
+| `PGID` | `568` | Recommended | Numeric GID, paired with `PUID`. Same rule, same failure mode. On TrueNAS SCALE the `apps` user is usually `568:568`. |
 | `PORT` | `8577` | No | The in-container listen port. **Pinned to the published mapping** — if you move the app to another port, change the mapping *and* `PORT` together. |
 | `LOG_LEVEL` | `info` | No | `debug` \| `info` \| `warning` \| `error`. |
 | `CONFIG_DIR` | `/config` | No | Database at `$CONFIG_DIR/unwatcharr.db`, logs at `$CONFIG_DIR/logs`. Rarely worth changing inside the container. |
