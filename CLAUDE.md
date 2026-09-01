@@ -1,4 +1,4 @@
-# CLAUDE.md — Unwatcharr 2.1 engineering guide
+# CLAUDE.md — Unwatcharr engineering guide
 
 ## What this is
 
