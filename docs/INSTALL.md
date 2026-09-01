@@ -167,7 +167,7 @@ docker run -d \
   -p 8577:8577 \
   -v /path/on/host/unwatcharr:/config \
   -e TZ=America/New_York \
-  -e PUID=1000 -e PGID=1000 \
+  -e PUID=568 -e PGID=568 \
   --memory 256m \
   --restart unless-stopped \
   ghcr.io/issaci22/unwatcharr:latest
