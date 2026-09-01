@@ -46,8 +46,8 @@ services:
     container_name: unwatcharr
     environment:
       TZ: America/New_York
-      PUID: 1000
-      PGID: 1000
+      PUID: 568
+      PGID: 568
     volumes:
       - ./config:/config
     ports:
@@ -67,8 +67,8 @@ That is the whole install. Every push to `main` publishes a multi-arch image
 | Variable | Default | Required | What it does |
 |---|---|:---:|---|
 | `TZ` | `UTC` | Recommended | Drives the scheduler and every timestamp in the UI. Resolved through `timeutil.resolve()`; an unknown zone logs a warning and falls back rather than raising. |
-| `PUID` | `1000` | Recommended | Numeric UID the app drops to. **Must own the directory mounted at `/config`** or the database cannot be written. `ls -n` on the host shows it; on TrueNAS SCALE `apps` is `568`. |
-| `PGID` | `1000` | Recommended | Numeric GID, paired with `PUID`. Same rule, same failure mode. |
+| `PUID` | `568` | Recommended | Numeric UID the app drops to. **Must own the directory mounted at `/config`** or the database cannot be written. `ls -n` on the host shows it; on TrueNAS SCALE `apps` is `568`. |
+| `PGID` | `568` | Recommended | Numeric GID, paired with `PUID`. Same rule, same failure mode. |
 | `PORT` | `8577` | No | The in-container listen port. **Pinned to the published mapping** — change `PORT` and `8577:8577` together, or change neither. |
 | `LOG_LEVEL` | `info` | No | `debug` \| `info` \| `warning` \| `error`. |
 | `CONFIG_DIR` | `/config` | No | Database at `$CONFIG_DIR/unwatcharr.db`, logs at `$CONFIG_DIR/logs`. |
