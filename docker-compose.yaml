@@ -29,8 +29,8 @@ services:
       TZ: ${TZ:-America/New_York}
       # Must match the owner of the directory mounted at /config. `ls -n` on the
       # host shows the numeric ids; on TrueNAS SCALE `apps` is 568:568.
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
+      PUID: ${PUID:-568}
+      PGID: ${PGID:-568}
       # Pinned so it always pairs with the published 8577:8577 mapping --
       # change both together, or change neither.
       PORT: "8577"
