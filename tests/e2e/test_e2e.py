@@ -50,13 +50,91 @@ def test_setup_discovers_libraries_and_users(client, db):
     assert any(u["kind"] == "owner" for u in users)
 
 
-@pytest.mark.parametrize(
-    "path", ["/", "/rules", "/users", "/history", "/logs", "/settings"]
-)
+PAGES = ["/", "/rules", "/users", "/history", "/logs", "/settings"]
+
+
+@pytest.mark.parametrize("path", PAGES)
 def test_pages_render(client, path):
     response = client.get(path, follow_redirects=True)
     assert response.status_code == 200, path
     assert "Unwatcharr" in response.text
+
+
+@pytest.mark.parametrize("path", PAGES)
+def test_shell_has_no_full_width_mode_banner(client, path):
+    """The mode banner was four-way redundant; the sidebar chip carries it now.
+
+    Checked in both modes, because the banner had a state for each and removing
+    only the loud one would have left safe mode shouting louder than the mode
+    that can actually modify Plex.
+    """
+    for enabled in (False, True):
+        client.post(
+            "/api/settings/safe-mode", json={"enabled": enabled, "confirm": True}
+        )
+        html = client.get(path, follow_redirects=True).text
+        assert "modebanner" not in html, (path, enabled)
+    client.post("/api/settings/safe-mode", json={"enabled": False, "confirm": True})
+
+
+@pytest.mark.parametrize("path", PAGES)
+def test_sidebar_keeps_the_mode_indicator(client, path):
+    """The chip is now the primary persistent indicator, so it is not optional.
+
+    Icon + word + colour: the class carries the colour, the word is in the
+    markup, and the tooltip says what the mode means.
+    """
+    client.post("/api/settings/safe-mode", json={"enabled": False, "confirm": True})
+    html = client.get(path, follow_redirects=True).text
+    assert "modechip modechip--active" in html, path
+    assert "Active" in html and "mode on" in html, path
+    assert "Active mode: runs can change Plex" in html, path
+
+    client.post("/api/settings/safe-mode", json={"enabled": True, "confirm": True})
+    html = client.get(path, follow_redirects=True).text
+    assert "modechip modechip--safe" in html, path
+    assert "Safe mode: nothing in Plex is changed" in html, path
+    client.post("/api/settings/safe-mode", json={"enabled": False, "confirm": True})
+
+
+@pytest.mark.parametrize("path", PAGES)
+def test_sidebar_toggle_is_a_labelled_hamburger(client, path):
+    """The control was a bare X that did nothing above 960px.
+
+    It is one button for one navigation: `data-drawer-close` for the phone
+    drawer and `data-nav-toggle` for the desktop rail, with the accessible name
+    and `aria-expanded` that a disclosure control owes a screen reader.
+    """
+    html = client.get(path, follow_redirects=True).text
+    assert "data-nav-toggle" in html, path
+    assert 'aria-controls="sidenav"' in html, path
+    assert 'aria-expanded="true"' in html, path
+    assert "Collapse navigation" in html, path
+    # The hamburger from _icons.html, not the close X it replaced.
+    assert "M3.5 6.5h17M3.5 12h17M3.5 17.5h17" in html, path
+    assert "sidenav__close" not in html, path
+
+
+def test_rule_editor_error_starts_hidden(client):
+    """The error callout is `display: flex` by class, so it must be BOTH marked
+    hidden in the markup and swept by `.callout[hidden]` in app.css — otherwise
+    it renders as an empty red bar with an icon and no sentence in it.
+
+    The component is not deleted: it is still in the page, ready to be filled.
+    """
+    html = client.get("/rules", follow_redirects=True).text
+    assert 'id="editor-error"' in html
+    assert 'id="editor-error-text"' in html
+    marker = html.index('id="editor-error"')
+    assert "hidden" in html[marker:marker + 120], html[marker:marker + 120]
+
+    # Order is the whole fix: an author `display` rule beats the UA sheet's
+    # `[hidden]` at any specificity, so the sweep only works if it comes after
+    # the `.callout { display: flex }` that was overriding it.
+    css = client.get("/static/app.css").text
+    assert ".callout[hidden]" in css
+    assert css.index(".callout[hidden]") > css.index(".callout {")
+    assert "display: none !important" in css[css.index(".callout[hidden]"):][:200]
 
 
 def test_healthz_needs_no_auth(app_server):

@@ -71,6 +71,10 @@
 
   /* --- layout ------------------------------------------------------------ */
   --sidebar-w: 226px;
+  /* Collapsed, the sidebar becomes an icon rail rather than nothing: the toggle
+     that closed it is still there to open it again, and no warning badge goes
+     off screen. Wide enough for a 32px icon button plus the chip's short word. */
+  --sidebar-rail-w: 64px;
   --appbar-h: 52px;
   --content-max: 1240px;
   --content-pad: var(--sp-6);

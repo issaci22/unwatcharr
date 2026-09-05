@@ -674,7 +674,7 @@
     editingId = ruleId || null;
 
     el("editor-title").textContent = ruleId ? "Edit rule" : "New rule";
-    el("editor-error").hidden = true;
+    showEditorError("");
     el("f-name").value = rule.name || "";
     document.querySelector('input[name="media_type"][value="' + rule.media_type + '"]').checked = true;
     el("f-age").value = rule.age_value;
@@ -726,6 +726,9 @@
   window.openEditor = openEditor;
 
   async function saveRule(source) {
+    // A retry starts clean: the previous attempt's sentence must not sit there
+    // looking like the verdict on this one.
+    showEditorError("");
     var name = el("f-name").value.trim();
     if (!name) {
       showEditorError("Give the rule a name so you can recognise it later.");
@@ -785,10 +788,14 @@
 
   // Validation is inline, next to the form it belongs to — never a toast that
   // disappears while you are still reading the field.
+  //
+  // An empty message hides the box rather than showing an empty red bar: the
+  // callout is `display: flex` by class, so its visibility is state, not just
+  // the `hidden` attribute, and there is exactly one place that state is set.
   function showEditorError(message) {
-    el("editor-error-text").textContent = message;
-    el("editor-error").hidden = false;
-    el("editor").querySelector(".dialog__body").scrollTop = 0;
+    el("editor-error-text").textContent = message || "";
+    el("editor-error").hidden = !message;
+    if (message) { el("editor").querySelector(".dialog__body").scrollTop = 0; }
   }
 
   async function deleteRule(source) {

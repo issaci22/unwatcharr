@@ -39,14 +39,18 @@
   <meta name="description" content="Unwatcharr — schedule watched Plex media back to unwatched.">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
 
-  {# Stamp the saved theme before first paint: a flash of the wrong theme on a
-     dark homelab dashboard is worse than the toggle itself. #}
+  {# Stamp the saved theme and the collapsed sidebar before first paint: a flash
+     of the wrong theme on a dark homelab dashboard is worse than the toggle
+     itself, and a sidebar that opens and then snaps shut is the same bug. #}
   <script>
     (function () {
       try {
         var saved = localStorage.getItem("unwatcharr.theme");
         if (saved === "light" || saved === "dark") {
           document.documentElement.setAttribute("data-theme", saved);
+        }
+        if (localStorage.getItem("unwatcharr.nav") === "rail") {
+          document.documentElement.setAttribute("data-nav", "rail");
         }
       } catch (err) { /* private mode: fall through to the OS preference */ }
     })();
@@ -89,7 +93,7 @@
          href="/settings"
          title="{{ 'Safe mode: nothing in Plex is changed' if safe_mode else 'Active mode: runs can change Plex' }}">
         {{ icons.icon("shield" if safe_mode else "unlock", 13) }}
-        {{ 'Safe' if safe_mode else 'Active' }}
+        <span class="modechip__short">{{ 'Safe' if safe_mode else 'Active' }}</span>
       </a>
       <button type="button" class="btn btn--ghost btn--icon" data-theme-toggle
               aria-label="Switch between the light and dark theme">
@@ -102,8 +106,16 @@
   <div class="scrim" data-drawer-close hidden></div>
 
   <aside class="sidenav" id="sidenav" data-open="false">
-    <button type="button" class="btn btn--ghost btn--icon sidenav__close" data-drawer-close>
-      {{ icons.icon("close", 18) }}<span class="sr-only">Close navigation</span>
+    {# One control with two jobs, because there is only one navigation. On a
+       phone the sidebar IS the drawer, so this closes it; on a desktop it
+       collapses the sidebar to an icon rail and back. `app.js` owns the
+       branch and rewrites the label, so the button never claims to do the
+       thing it is not about to do. #}
+    <button type="button" class="btn btn--ghost btn--icon sidenav__toggle"
+            data-nav-toggle data-drawer-close
+            aria-controls="sidenav" aria-expanded="true"
+            title="Collapse the sidebar">
+      {{ icons.icon("menu", 18) }}<span class="sr-only" data-nav-toggle-label>Collapse navigation</span>
     </button>
 
     <a class="brand" href="/">
@@ -117,9 +129,9 @@
       {% for group, items in nav_items %}
         <div class="nav__label">{{ group }}</div>
         {% for key, href, label, glyph in items %}
-        <a class="nav__item" href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}>
+        <a class="nav__item" href="{{ href }}" title="{{ label }}"{% if active == key %} aria-current="page"{% endif %}>
           {{ icons.icon(glyph, 17) }}
-          <span>{{ label }}</span>
+          <span class="nav__text">{{ label }}</span>
           {%- if key == 'dashboard' and status and status.warnings %}
           <span class="nav__tag nav__tag--warn">{{ status.warnings | length }}<span class="sr-only"> items need attention</span></span>
           {%- elif key == 'users' and status and status.users.unlinked %}
@@ -133,11 +145,18 @@
     <div class="sidenav__spacer"></div>
 
     <div class="sidenav__foot">
-      {# Safe mode is legible from every page, not only from Settings. #}
+      {# The primary persistent statement of whether a run can touch Plex, so it
+         is legible from every page and not only from Settings. Icon + word +
+         colour: it still reads without colour, and it still reads in the
+         collapsed rail, where only `modechip__short` survives. #}
       <a class="modechip {{ 'modechip--safe' if safe_mode else 'modechip--active' }}"
-         href="/settings">
+         href="/settings"
+         title="{{ 'Safe mode: nothing in Plex is changed' if safe_mode else 'Active mode: runs can change Plex' }}">
         {{ icons.icon("shield" if safe_mode else "unlock", 14) }}
-        {{ 'Safe mode on' if safe_mode else 'Active mode' }}
+        <span class="modechip__label"><span
+          class="modechip__short">{{ 'Safe' if safe_mode else 'Active' }}</span><span
+          class="modechip__rest"> mode on</span></span>
+        <span class="sr-only">— {{ 'nothing in Plex is changed' if safe_mode else 'runs can change Plex' }}. Open Settings to change it.</span>
       </a>
 
       <div class="cluster cluster--tight">
@@ -149,8 +168,8 @@
         </button>
         {% if password_set %}
         <form method="post" action="/logout">
-          <button type="submit" class="btn btn--ghost btn--sm">
-            {{ icons.icon("logout", 15) }} Sign out
+          <button type="submit" class="btn btn--ghost btn--sm" title="Sign out">
+            {{ icons.icon("logout", 15) }}<span class="btn__text">Sign out</span>
           </button>
         </form>
         {% endif %}
@@ -206,31 +225,13 @@
     </div>
     {% endif %}
 
+    {# Whether a run can touch Plex is carried by the mode chip in the sidebar
+       (and in the app bar on mobile), by the sentence beside the run controls on
+       the dashboard, and by the safe-mode panel on Settings. It was also a
+       full-width banner on top of every page; four simultaneous statements of
+       the same fact turned the loudest one into wallpaper, so the persistent
+       chip is now the one that carries it. #}
     <main id="main" class="content">
-      {% if active not in ('setup', 'login') %}
-      {# The one thing that must never be missed: whether a run can touch Plex.
-         Both states are loud, and they do not look like each other. #}
-      <div class="modebanner {{ 'modebanner--safe' if safe_mode else 'modebanner--active' }}"
-           role="status">
-        <span class="modebanner__icon">{{ icons.icon("shield" if safe_mode else "unlock", 18) }}</span>
-        <div class="modebanner__body">
-          {% if safe_mode %}
-          <strong class="modebanner__title">Safe mode — no Plex changes will be made</strong>
-          <span class="modebanner__text">Every run, scheduled or manual, is calculated in
-            full and then forced to a dry run. Previews and history still work, so you can
-            see exactly what would happen before allowing it.</span>
-          {% else %}
-          <strong class="modebanner__title">Active mode — runs can modify Plex watch state</strong>
-          <span class="modebanner__text">Scheduled and manual runs will really mark matching
-            items unwatched. Changes are recorded in History and can be undone, but Plex
-            cannot restore the original watch dates.</span>
-          {% endif %}
-        </div>
-        {% if active != 'settings' %}
-        <span class="modebanner__action"><a class="btn btn--sm" href="/settings">Change</a></span>
-        {% endif %}
-      </div>
-      {% endif %}
 {% endif %}
 
 {% block content %}{% endblock %}

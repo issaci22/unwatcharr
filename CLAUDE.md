@@ -179,15 +179,28 @@ app/web/static/app.js         api() + act() + toast() + shell behaviour
   stamps the saved theme before first paint.
 - **Colour is never the only signal.** Every status is icon + word + colour, or
   it fails for a colour-blind user and in a screenshot.
-- **Safe mode is loud on every page.** A full-width mode banner in one of two
-  states that do not look alike, plus a chip in the sidebar and the app bar.
-  Never a checkbox in a long form — that is why it has its own endpoint.
+- **Safe mode is legible on every page.** The mode chip in the sidebar is the
+  persistent statement — icon + word + colour, red-edged when Plex can really be
+  modified — plus the same chip in the mobile app bar, the sentence beside the
+  run controls on the dashboard, and the safe-mode panel on Settings. It was
+  also a full-width banner on top of every page; four simultaneous statements of
+  one fact turned the loudest into wallpaper, so the banner is gone and the chip
+  carries it. Never a checkbox in a long form — that is why it has its own
+  endpoint.
 - **Never blur dry and apply.** Read `effective_mode` from `POST /api/runs` and
   `changed_anything` on a run row. A dry run that matched 400 items changed
   nothing, and the UI must say so.
 - **Mobile is a layout, not a squeeze.** Under 960px the sidebar becomes a
   drawer, and a wide table gets `.table--cards` + `data-label` attributes so it
   stacks instead of scrolling sideways.
+- **One navigation, one control.** `[data-nav-toggle]` in the sidebar's header
+  closes the drawer under 960px and collapses the sidebar to a 64px icon rail
+  above it (`data-nav="rail"` on `<html>`, stamped pre-paint from
+  `localStorage`, same as the theme). `app.js` owns the branch and rewrites the
+  button's label so it never claims the job it is not holding. Collapsed is not
+  gone: the toggle, every destination, the mode chip and any warning count stay
+  in the rail, and the labels are set aside with the `.sr-only` treatment rather
+  than `display: none`, so the accessibility tree is unchanged.
 - **Every state is designed**: loading (`data-busy` on a button keeps its label
   and gains a spinner), empty (say what to do next), and error (show the API's
   `detail` sentence verbatim — it is already written for a human).
@@ -304,6 +317,13 @@ otherwise.
   `onclick="fn({{ name | tojson }})"` ends the attribute early on any value
   containing a quote, and the handler silently never runs. Put the value in a
   `data-*` attribute (normal autoescaping) and read it off the element.
+- **A `display` rule in `app.css` beats the UA sheet's `[hidden]`** whatever the
+  specificity, so `el.hidden = true` on anything that is `display: flex` by
+  class does nothing. It has bitten four times (`#preview-dialog`,
+  `#user-dialog`, `.wizard`, then the rule editor's error callout, which shipped
+  as a permanently visible empty red bar). Any component toggled with
+  `el.hidden` belongs in the `[hidden] { display: none !important }` sweep at
+  the end of `app.css`.
 - `sqlite3.executescript()` commits any open transaction, so the
   `PRAGMA user_version=N` bump must be a separate statement after it, not part
   of the same script.

@@ -48,7 +48,54 @@
     });
   }
 
-  // --- navigation drawer (mobile) -------------------------------------------
+  // --- navigation: one drawer on a phone, one collapsible rail on a desktop --
+  //
+  // There is ONE navigation and ONE control on top of it. Under 960px the
+  // sidebar is a drawer and that control closes it; above 960px the sidebar is
+  // a column and the same control collapses it to an icon rail. The branch
+  // lives here rather than in two competing widgets, and the button's label is
+  // rewritten to match whichever job it is currently holding.
+  var NAV_KEY = "unwatcharr.nav";
+  var DRAWER_MQ = "(max-width: 960px)";
+
+  function drawerMode() {
+    return window.matchMedia && window.matchMedia(DRAWER_MQ).matches;
+  }
+
+  function railed() {
+    return document.documentElement.getAttribute("data-nav") === "rail";
+  }
+
+  function setRail(rail) {
+    if (rail) {
+      document.documentElement.setAttribute("data-nav", "rail");
+    } else {
+      document.documentElement.removeAttribute("data-nav");
+    }
+    try { localStorage.setItem(NAV_KEY, rail ? "rail" : "open"); }
+    catch (err) { /* private mode: the choice just does not survive a reload */ }
+  }
+
+  // The control describes what it will do next, not what it is.
+  function paintNavToggle() {
+    var toggle = document.querySelector("[data-nav-toggle]");
+    if (!toggle) { return; }
+    var drawer = document.getElementById("sidenav");
+    var open = drawerMode()
+      ? (drawer && drawer.getAttribute("data-open") === "true")
+      : !railed();
+    var label = drawerMode()
+      ? "Close navigation"
+      : (open ? "Collapse navigation" : "Expand navigation");
+
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.setAttribute("title", drawerMode()
+      ? "Close the navigation"
+      : (open ? "Collapse the sidebar" : "Expand the sidebar"));
+    var text = toggle.querySelector("[data-nav-toggle-label]");
+    if (text) { text.textContent = label; }
+  }
+
   function initDrawer() {
     var drawer = document.getElementById("sidenav");
     var scrim = document.querySelector(".scrim");
@@ -71,14 +118,47 @@
       } else {
         opener.focus();
       }
+      paintNavToggle();
     }
 
     opener.addEventListener("click", function () {
       setOpen(drawer.getAttribute("data-open") !== "true");
     });
+    // Everything that closes the drawer -- the scrim, and the control in the
+    // sidebar's own header -- but the sidebar control only closes anything when
+    // the sidebar is actually a drawer.
     document.querySelectorAll("[data-drawer-close]").forEach(function (el) {
-      el.addEventListener("click", function () { setOpen(false); });
+      el.addEventListener("click", function () {
+        if (el.hasAttribute("data-nav-toggle") && !drawerMode()) { return; }
+        setOpen(false);
+      });
     });
+
+    // Desktop: the same control collapses the sidebar to an icon rail. Focus
+    // stays on the button, so it is still under the finger to expand again.
+    document.querySelectorAll("[data-nav-toggle]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        if (drawerMode()) { return; }       // handled as a drawer close above
+        setRail(!railed());
+        paintNavToggle();
+      });
+    });
+
+    // Crossing the breakpoint changes what the control does, so it has to stop
+    // claiming the other thing. The rail state is remembered either way.
+    if (window.matchMedia) {
+      var mq = window.matchMedia(DRAWER_MQ);
+      var onChange = function () {
+        // Only if it is actually open -- setOpen(false) moves focus, and a
+        // window resize is not a reason to yank the caret out of a form.
+        if (drawer.getAttribute("data-open") === "true") { setOpen(false); }
+        paintNavToggle();
+      };
+      if (mq.addEventListener) { mq.addEventListener("change", onChange); }
+      else if (mq.addListener) { mq.addListener(onChange); }
+    }
+
+    paintNavToggle();
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape" && drawer.getAttribute("data-open") === "true") {
         setOpen(false);

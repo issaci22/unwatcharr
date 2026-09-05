@@ -164,6 +164,12 @@ code { font-size: 0.92em; }
   overscroll-behavior: contain;
 }
 
+/* The sidebar's own control: collapse on a desktop, close on a phone. It is a
+   .btn--ghost, so the hover, focus-visible and keyboard behaviour are the ones
+   every other ghost button in the app already has -- only the position is set
+   here. */
+.sidenav__toggle { align-self: flex-start; }
+
 .sidenav__spacer { flex: 1; }
 
 .sidenav__foot {
@@ -188,6 +194,100 @@ code { font-size: 0.92em; }
 /* The mobile app bar is hidden on desktop; the drawer is the same <aside>. */
 .appbar { display: none; }
 .scrim { display: none; }
+
+/* --- the collapsed rail --------------------------------------------------
+   Collapsing gives the page 162px, but "collapsed" must never mean "gone": the
+   control that closed it is still in the rail to open it again, every
+   destination is still one click away, the mode chip still says whether Plex
+   can be modified, and a warning count still shows. Only the words are set
+   aside -- and set aside with the .sr-only treatment, not `display: none`, so a
+   screen reader still reads "Dashboard" and not an unlabelled link.
+
+   Scoped above the drawer breakpoint: under 960px the sidebar is a drawer and
+   the rail must not have an opinion about it.                              */
+@media (min-width: 961px) {
+  :root[data-nav="rail"] { --sidebar-w: var(--sidebar-rail-w); }
+
+  :root[data-nav="rail"] .sidenav {
+    align-items: center;
+    padding-left: var(--sp-2);
+    padding-right: var(--sp-2);
+    gap: var(--sp-4);
+    overflow-x: hidden;
+  }
+
+  /* Visually set aside, still announced. Same contract as .sr-only. */
+  :root[data-nav="rail"] .nav__text,
+  :root[data-nav="rail"] .nav__label,
+  :root[data-nav="rail"] .brand__name,
+  :root[data-nav="rail"] .theme-label,
+  :root[data-nav="rail"] .btn__text,
+  :root[data-nav="rail"] .modechip__rest {
+    position: absolute;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  :root[data-nav="rail"] .sidenav__toggle { align-self: center; }
+  :root[data-nav="rail"] .brand { padding: var(--sp-2) 0 var(--sp-3); }
+  :root[data-nav="rail"] .nav { width: 100%; align-items: center; }
+  :root[data-nav="rail"] .nav__item {
+    justify-content: center;
+    padding: var(--sp-3) 0;
+    border-left-width: 0;
+    border-radius: var(--r-md);
+  }
+  /* The active page is marked by fill, not by a left edge that no longer has a
+     row to sit against. */
+  :root[data-nav="rail"] .nav__item[aria-current="page"] {
+    box-shadow: inset 0 0 0 var(--bw) var(--brand-border);
+  }
+  /* A group divider replaces the group heading the rail cannot show. */
+  :root[data-nav="rail"] .nav__label {
+    display: block;
+    height: var(--bw);
+    width: 60%;
+    margin: var(--sp-3) auto;
+    background: var(--border);
+  }
+  :root[data-nav="rail"] .nav__label:first-child { display: none; }
+
+  /* A count would not fit, so it becomes a dot on the icon -- still not colour
+     alone: the .sr-only sentence inside it survives, and the tooltip names the
+     destination. */
+  :root[data-nav="rail"] .nav__item { position: relative; }
+  :root[data-nav="rail"] .nav__tag {
+    position: absolute;
+    top: 4px; right: 10px;
+    margin-left: 0;
+    min-width: 8px; height: 8px;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
+    border-radius: var(--r-pill);
+  }
+  :root[data-nav="rail"] .nav__tag--warn { background: var(--warn); }
+  :root[data-nav="rail"] .nav__tag--danger { background: var(--danger); }
+
+  :root[data-nav="rail"] .sidenav__foot { width: 100%; align-items: center; }
+  :root[data-nav="rail"] .modechip {
+    width: 100%;
+    justify-content: center;
+    padding: var(--sp-3) 0;
+    gap: 2px;
+    flex-direction: column;
+    font-size: var(--fs-2xs);
+  }
+  /* The heavier edge would be a top edge on a stacked chip; keep it on the left
+     so the two states still differ by shape as well as by colour. */
+  :root[data-nav="rail"] .modechip--active { border-left-width: 3px; }
+  :root[data-nav="rail"] .cluster--tight { flex-direction: column; gap: var(--sp-2); }
+  :root[data-nav="rail"] .sidenav__meta { display: none; }
+}
 
 /* == 04 brand mark ======================================================== */
 
@@ -252,9 +352,6 @@ code { font-size: 0.92em; }
   :root:not([data-theme="dark"]):not([data-theme="light"]) .theme-icon--light { display: inline-block; }
 }
 .theme-label:empty { display: none; }
-
-/* The drawer's own close control has no place on a desktop sidebar. */
-.sidenav__close { display: none; }
 
 /* == 05 navigation ======================================================== */
 
@@ -374,52 +471,12 @@ code { font-size: 0.92em; }
   .dot--live { animation: none; }
 }
 
-/* --- the mode banner ----------------------------------------------------
-   The single most important thing on screen. Two states, both loud, and they
-   do not look like each other: amber "nothing will change" vs red-edged
-   "Plex will really be modified".                                         */
-.modebanner {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--sp-4);
-  padding: var(--sp-4) var(--sp-5);
-  border: var(--bw) solid;
-  border-left-width: 3px;
-  border-radius: var(--r-md);
-  margin-bottom: var(--sp-6);
-  font-size: var(--fs-md);
-  line-height: var(--lh-snug);
-}
-.modebanner__icon { margin-top: 1px; }
-.modebanner__body { min-width: 0; }
-.modebanner__title {
-  display: block;
-  font-weight: var(--fw-bold);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-  font-size: var(--fs-sm);
-  margin-bottom: 2px;
-}
-.modebanner__text { color: var(--text-muted); }
-.modebanner__action { margin-left: auto; padding-left: var(--sp-5); white-space: nowrap; }
-
-.modebanner--safe {
-  background: var(--warn-tint);
-  border-color: var(--warn-border);
-  border-left-color: var(--warn);
-}
-.modebanner--safe .modebanner__title,
-.modebanner--safe .modebanner__icon { color: var(--warn-text); }
-
-.modebanner--active {
-  background: var(--danger-tint);
-  border-color: var(--danger-border);
-  border-left-color: var(--danger);
-}
-.modebanner--active .modebanner__title,
-.modebanner--active .modebanner__icon { color: var(--danger-text); }
-
-/* Compact form of the same state, for the status rail. */
+/* --- the mode chip ------------------------------------------------------
+   The persistent statement of whether a run can touch Plex: in the sidebar on
+   every page, and in the app bar on mobile. It replaced a full-width banner
+   that said the same thing a fourth time; the chip is small on purpose, so it
+   leans on icon + word + a tinted border rather than on area. Never colour
+   alone -- the word is what survives a screenshot and a colour-blind reader. */
 .modechip {
   display: inline-flex;
   align-items: center;
@@ -432,8 +489,16 @@ code { font-size: 0.92em; }
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
+.modechip:hover { text-decoration: none; filter: brightness(1.08); }
 .modechip--safe { background: var(--warn-tint); border-color: var(--warn-border); color: var(--warn-text); }
-.modechip--active { background: var(--danger-tint); border-color: var(--danger-border); color: var(--danger-text); }
+/* The dangerous state carries the heavier left edge, the way the callouts do,
+   so it is distinguishable from the safe one without reading the colour. */
+.modechip--active {
+  background: var(--danger-tint);
+  border-color: var(--danger-border);
+  border-left: 3px solid var(--danger);
+  color: var(--danger-text);
+}
 
 /* == 07 page header ======================================================= */
 
@@ -2428,8 +2493,9 @@ dialog::backdrop { background: var(--overlay); }
   }
   .scrim[data-open="true"] { opacity: 1; visibility: visible; }
 
-  /* The drawer holds the nav; its own close control sits at the top. */
-  .sidenav__close { display: inline-flex; align-self: flex-end; }
+  /* The drawer holds the nav, so its control closes it, and it sits where a
+     close control is expected. */
+  .sidenav__toggle { align-self: flex-end; }
 
   /* The drawer is the only navigation, so it never hides behind the app bar. */
   body.drawer-open { overflow: hidden; }
@@ -2486,7 +2552,6 @@ dialog::backdrop { background: var(--overlay); }
   .activity__body { flex: 1 1 60%; }
   .stat-card { padding: var(--sp-4); }
   .stat-card__value { font-size: var(--fs-xl); }
-  .modebanner { flex-wrap: wrap; }
   .rulecard__foot { padding: var(--sp-4) var(--sp-5); }
   .rulecard__foot .btn { flex: 1 1 auto; }
   .rulecard__foot .spacer { display: none; }
@@ -2494,7 +2559,6 @@ dialog::backdrop { background: var(--overlay); }
   .formrow { gap: var(--sp-4); }
   .segmented { width: 100%; }
   .segmented label, .segmented span { flex: 1; justify-content: center; }
-  .modebanner__action { margin-left: 0; padding-left: 0; width: 100%; }
   .panel__head, .panel__body { padding: var(--sp-5); }
   .dialog__body { max-height: 70vh; }
 }
@@ -2529,7 +2593,12 @@ dialog::backdrop { background: var(--overlay); }
 /* A display rule beats the UA sheet's [hidden], so every element these pages
    toggle with el.hidden gets an explicit sweep. Same fix blocks 4 and 5 needed
    inside their dialogs; here it covers the fields, slots and rows that are
-   flex or block by class. */
+   flex or block by class.
+
+   `.callout` is in the list because it is `display: flex` by class and the rule
+   editor toggles its error box with `el.hidden` -- without this it renders as an
+   empty red bar with an icon and no sentence in it. */
+.callout[hidden],
 .field[hidden],
 .table .sub[hidden],
 .btn[hidden],
