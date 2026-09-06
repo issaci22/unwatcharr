@@ -6,7 +6,7 @@ and the trap list live there and are deliberately not repeated here.
 
 ```yaml
 project: Unwatcharr
-version: 1.1.0                     # 1.1.X series -- do not renumber
+version: 1.1.1                     # 1.1.X series -- do not renumber
 workspace: D:\Documents\Claude Projects\Unwatcharr
 
 milestone:
@@ -34,9 +34,9 @@ git:
         origin/main mid-session (7202ebb, 94acedd, a9fca1f), so their
         pre-rebase hashes are dead. Trust `git log`, not a remembered hash.
   working_tree: CLEAN
-  version: still 1.1.0. NO tag and NO release was created -- pushing to main
-           republishes :latest, which is deliberate; a v1.1.x tag is a separate
-           decision that has not been authorised.
+  version: 1.1.1, released as the annotated tag v1.1.1. The 2.1.x numbering
+           was abandoned -- a stray local `2.1.1` tag and old 2.1.x GHCR tags
+           survive from it and were deliberately LEFT ALONE, not cleaned up.
   identity: repo-local IssacPC <issacthrowaway69@gmail.com>
   caution: something outside the session has overwritten files in this
            workspace before. Re-read from disk before trusting stale state.
@@ -188,7 +188,7 @@ the sidebar toggles 226px ↔ 64px repeatedly and across a reload; zero console 
 container `unwatcharr-dev`, http://localhost:8578):
 
 - Container reaches `healthy`; `/healthz` 200, `/` 200, entrypoint drops to
-  uid=gid=1000 and the app logs `Unwatcharr 1.1.0 starting`.
+  uid=gid=1000 and the app logs `Unwatcharr 1.1.1 starting`.
 - **It is the working tree, not a release.** `sha256sum` inside the container
   matches the host byte-for-byte for `app/main.py`, `app/web/pages.py` and
   `base.html` — all three UNCOMMITTED. The proof that needs no hashing: the
