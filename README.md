@@ -32,7 +32,7 @@
 
 Your library keeps resurfacing things you loved instead of hiding them behind a
 grey checkmark forever. Plex removed plugin support in 2018, so Unwatcharr cannot
-run *inside* Plex — it is a sidecar container that speaks to the Plex HTTP API
+run *inside* Plex. It is a sidecar container that speaks to the Plex HTTP API
 from outside, on port `8577`.
 
 ---
