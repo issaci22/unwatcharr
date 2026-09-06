@@ -25,12 +25,14 @@ tests: 199/199 green
 
 git:
   branch: main, pushed to origin/main
-  head: the dev-compose commit below
-  recent: 1b4eba8 fix(web): cache-bust /static so an upgrade cannot serve
+  head: aaa5dcd chore(docker): local-only dev compose stack
+                (docker-compose.dev.yaml · CLAUDE.md · HANDOVER.md)
+  recent: f8048de fix(web): cache-bust /static so an upgrade cannot serve
                   stale CSS and JS  (app/main.py · app/web/pages.py ·
                   base.html · tests/e2e/test_e2e.py · CLAUDE.md trap entry)
-          <tip>   chore(docker): local-only dev compose stack
-                  (docker-compose.dev.yaml · CLAUDE.md · HANDOVER.md)
+  note: both were rebased onto three README-only commits that landed on
+        origin/main mid-session (7202ebb, 94acedd, a9fca1f), so their
+        pre-rebase hashes are dead. Trust `git log`, not a remembered hash.
   working_tree: CLEAN
   version: still 1.1.0. NO tag and NO release was created -- pushing to main
            republishes :latest, which is deliberate; a v1.1.x tag is a separate
@@ -84,7 +86,7 @@ env:
 
 ## Recent changes
 
-- **`1b4eba8` static asset cache busting.** `/static` was served with an
+- **`f8048de` static asset cache busting.** `/static` was served with an
   ETag but no `Cache-Control`, so browsers applied heuristic freshness and kept
   serving the *previous* release's `app.css`/`app.js` for hours after an
   upgrade. Two UI bugs reported as regressions (empty red error bar in the rule
@@ -116,9 +118,10 @@ env:
    `docker compose pull && docker compose up -d`
    (Ctrl+Shift+R is the interim workaround on the running one.) The image is
    rebuilt by the Actions workflow from the pushed commit — never by hand.
-2. Make the GHCR package public at github.com/users/issaci22/packages, or the
-   documented `docker compose up -d` fails for everyone but the owner. Needs a
-   browser — `gh` is not installed here.
+2. ~~Make the GHCR package public.~~ **DONE** — verified 2026-09-06: an
+   anonymous token lists tags at `ghcr.io/v2/issaci22/unwatcharr/tags/list`
+   (HTTP 200), so `docker compose up -d` works for everyone, not just the
+   owner.
 
 **Decision needed**
 
