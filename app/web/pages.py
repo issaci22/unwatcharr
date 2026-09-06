@@ -32,7 +32,37 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+
+
+def _asset_version() -> str:
+    """A cache key for /static that changes whenever a static file changes.
+
+    TRAP, and it has cost a debugging session twice: `/static/app.css` and
+    `/static/app.js` carry an ETag and a Last-Modified but no `Cache-Control`,
+    so a browser applies RFC 9111 heuristic freshness -- roughly a tenth of the
+    file's age -- and serves the OLD stylesheet and the OLD script for hours
+    after an upgrade WITHOUT revalidating. The symptom is never "stale CSS":
+    it is whatever the previous release's bug was, reappearing in a build that
+    provably does not contain it, on one machine, unreproducible anywhere else.
+
+    `__version__` alone is not enough -- it does not move between releases
+    while the design surface is being worked on -- so the newest mtime under
+    the static directory goes in too. Import time is the right moment: the
+    process restarts when the files change.
+    """
+    newest = 0.0
+    for path in STATIC_DIR.rglob("*"):
+        if path.is_file():
+            newest = max(newest, path.stat().st_mtime)
+    return f"{__version__}-{int(newest)}"
+
+
+# A global rather than a `context()` key: login.html and setup.html render
+# through the same shell, and the stamp must not depend on a page remembering
+# to pass it.
+templates.env.globals["asset_v"] = _asset_version()
 
 
 # ---------------------------------------------------------------------------

@@ -324,6 +324,17 @@ otherwise.
   as a permanently visible empty red bar). Any component toggled with
   `el.hidden` belongs in the `[hidden] { display: none !important }` sweep at
   the end of `app.css`.
+- **A front-end fix that is provably in the file can still be on screen.**
+  `StaticFiles` sends an ETag and a `Last-Modified` but no `Cache-Control`, so
+  the browser applies heuristic freshness (RFC 9111 -- roughly a tenth of the
+  file's age) and serves the previous release's `app.css` and `app.js` for
+  hours after an upgrade *without revalidating*. It presents as the last
+  version's UI bugs reappearing in a build that does not contain them, on one
+  machine only. The shell therefore stamps every static link with
+  `?v={{ asset_v }}` (`__version__` plus the newest mtime under `static/`, in
+  `pages.py`), and `VersionedStatic` in `main.py` answers a stamped URL with
+  `immutable` and a bare one with `no-cache`. Before debugging any UI report,
+  confirm the served asset is the current one -- do not re-fix a fixed bug.
 - `sqlite3.executescript()` commits any open transaction, so the
   `PRAGMA user_version=N` bump must be a separate statement after it, not part
   of the same script.

@@ -56,9 +56,13 @@
     })();
   </script>
 
+  {# `?v=` is load-bearing, not decoration: /static is served with an ETag but
+     no Cache-Control, so without a changing URL a browser heuristically holds
+     the previous release's CSS and JS for hours and the last version's UI bugs
+     come back on a build that does not contain them. See `_asset_version()`. #}
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/theme.css">
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/theme.css?v={{ asset_v }}">
+  <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -248,7 +252,7 @@
 {# Screen readers are told what happened; a toast is never silent colour. #}
 <div class="toast-region" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{ asset_v }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

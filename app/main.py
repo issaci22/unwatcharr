@@ -88,7 +88,36 @@ app.add_middleware(
 )
 
 STATIC_DIR = Path(__file__).parent / "web" / "static"
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+class VersionedStatic(StaticFiles):
+    """`/static` with an explicit caching contract.
+
+    Starlette sends an ETag and a Last-Modified but no `Cache-Control`, which
+    leaves the browser free to invent a freshness lifetime (RFC 9111 heuristic
+    caching, about a tenth of the file's age). That is how an upgraded
+    container keeps serving the previous release's `app.css` and `app.js` for
+    hours: the old UI bugs reappear in a build that does not contain them, on
+    one machine, and nothing in the logs says so.
+
+    Two cases, and the shell only ever emits the first:
+      `?v=<stamp>`  the URL changes when the file does, so it is safe to keep
+                    for a year and never ask again.
+      no query      an old cached page, or a hand-typed URL. `no-cache` does
+                    not mean "do not store" -- it means revalidate, which the
+                    ETag answers with a 304 and no body.
+    """
+
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        versioned = b"v=" in scope.get("query_string", b"")
+        response.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable" if versioned else "no-cache"
+        )
+        return response
+
+
+app.mount("/static", VersionedStatic(directory=str(STATIC_DIR)), name="static")
 
 app.include_router(pages_router)
 app.include_router(api_router)

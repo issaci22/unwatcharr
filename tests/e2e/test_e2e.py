@@ -137,6 +137,47 @@ def test_rule_editor_error_starts_hidden(client):
     assert "display: none !important" in css[css.index(".callout[hidden]"):][:200]
 
 
+@pytest.mark.parametrize("path", PAGES)
+def test_static_assets_are_cache_busted(client, path):
+    """The shell must never link `/static/app.css` at a URL that cannot change.
+
+    Both fixes above are in the files, and both were still on screen after the
+    upgrade that shipped them: Starlette sends an ETag but no `Cache-Control`,
+    so the browser invented a freshness lifetime and kept the previous
+    release's CSS and JS for hours without asking. The failure mode is the
+    nastiest kind -- last version's bugs, in a build that does not contain
+    them, on one machine.
+    """
+    html = client.get(path, follow_redirects=True).text
+    for asset in ("theme.css", "app.css", "app.js"):
+        assert f"/static/{asset}?v=" in html, (path, asset)
+
+
+def test_static_cache_headers_are_explicit(client):
+    """Versioned URLs are immutable for a year; a bare one must revalidate.
+
+    `no-cache` is not `no-store`: the file is still cached, the ETag still
+    answers with a 304 and no body, but the browser can no longer decide on its
+    own to skip the question.
+    """
+    html = client.get("/rules", follow_redirects=True).text
+    start = html.index("/static/app.css?v=")
+    versioned = html[start:html.index('"', start)]
+
+    fresh = client.get(versioned)
+    assert fresh.status_code == 200
+    assert fresh.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+    bare = client.get("/static/app.css")
+    assert bare.headers["cache-control"] == "no-cache"
+
+    revalidated = client.get(
+        "/static/app.css", headers={"If-None-Match": bare.headers["etag"]}
+    )
+    assert revalidated.status_code == 304
+    assert revalidated.content == b""
+
+
 def test_healthz_needs_no_auth(app_server):
     assert httpx.get(f"{app_server['url']}/healthz", timeout=10).text == "ok"
 
