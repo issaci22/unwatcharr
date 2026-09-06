@@ -45,6 +45,10 @@ Docker:
 ```bash
 docker build -t unwatcharr:latest .   # local build; not what users run
 docker compose up -d                  # pulls ghcr.io/issaci22/unwatcharr:latest
+
+# Test the WORKING TREE in a container -- builds, never pulls, never pushes.
+docker compose -f docker-compose.dev.yaml up -d --build --wait   # -> :8578
+docker compose -f docker-compose.dev.yaml down
 ```
 
 No linter or formatter is configured.
@@ -79,13 +83,25 @@ bump. Image is **206 MB**.
 - `docker-entrypoint.sh` chowns `/config` **only when the ownership is actually
   wrong** (a recursive chown every boot is wasted I/O on a NAS), then
   `exec setpriv --reuid --regid --clear-groups`. It no-ops when already non-root.
-- **One compose file: `docker-compose.yaml`.** It pulls
-  `ghcr.io/issaci22/unwatcharr:latest` and never builds. The build, TrueNAS and
-  prod variants were deleted — TrueNAS is now a two-line diff (dataset path,
-  PUID/PGID 568) documented in INSTALL, and a local build means editing the
-  `image:` line. README and `docs/INSTALL.md` embed this file's contents as a
-  copy-paste block, so **any edit to it must be mirrored into both** — that is
-  the one place the docs can silently drift from the tree.
+- **Two compose files, and they do opposite things. Neither replaces the
+  other.**
+  - `docker-compose.yaml` is **the install**: it pulls
+    `ghcr.io/issaci22/unwatcharr:latest` and **never builds**. It must never
+    grow a `build:` section. The TrueNAS and prod variants were deleted —
+    TrueNAS is now a two-line diff (dataset path, PUID/PGID 568) documented in
+    INSTALL. README and `docs/INSTALL.md` embed this file's contents as a
+    copy-paste block, so **any edit to it must be mirrored into both** — that
+    is the one place the docs can silently drift from the tree.
+  - `docker-compose.dev.yaml` is **local testing only**: it builds the working
+    tree (uncommitted changes included) into `unwatcharr:local`, and names no
+    registry at all, so it cannot pull or push. Own compose project
+    (`unwatcharr-dev`), own container (`unwatcharr-dev`), host port **8578**,
+    and its own named volume — it never touches the repo's `./config`. It is
+    deliberately NOT documented in README or INSTALL: users install the
+    published image, and a second compose file in the quick start would only
+    make the install look like it has a build step. `pull_policy: build` makes
+    even a bare `up -d` rebuild, so a stale image cannot masquerade as a test
+    of the current tree.
 - `.github/workflows/docker-publish.yml` builds amd64+arm64 on every push to
   `main` and on `v*.*.*` tags, pushes to GHCR with `GITHUB_TOKEN` (no secrets to
   configure), then smoke-tests the pushed digest against `/healthz`. It is the

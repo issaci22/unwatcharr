@@ -1,0 +1,87 @@
+# Unwatcharr -- LOCAL DEVELOPMENT / TESTING ONLY. This is NOT the install.
+#
+# docker-compose.yaml is the install: it pulls ghcr.io/issaci22/unwatcharr:latest
+# and never builds. This file is its exact opposite -- it BUILDS the image from
+# the working tree, uncommitted changes included, and never touches GHCR. It
+# exists so a change can be exercised in a real container before anything is
+# committed, tagged or published. There is no registry reference in this file at
+# all, so nothing here can push.
+#
+#   docker compose -f docker-compose.dev.yaml up -d --build --wait
+#   docker compose -f docker-compose.dev.yaml logs -f         # follow the log
+#   docker compose -f docker-compose.dev.yaml down            # stop + remove
+#   docker compose -f docker-compose.dev.yaml down -v         # ... and wipe /config
+#
+# Then open http://localhost:8578 -- 8578, not 8577. See `ports` below.
+#
+# `--wait` is not decoration: without it `up -d` returns as soon as the
+# container is STARTED, which is a second or two before uvicorn is listening,
+# and the first browser hit or curl gets a connection refused that looks like a
+# broken build. With it, the command returns only once the HEALTHCHECK passes.
+
+# Its own compose project, so this stack shares nothing with the production
+# stack: separate network, separate volume namespace, and neither file reports
+# the other's containers as orphans (`down --remove-orphans` run from one can
+# therefore never delete the other's container).
+name: unwatcharr-dev
+
+services:
+  unwatcharr-dev:
+    # The whole point of the file. Docker keys COPY layers on file content and
+    # the build context is the filesystem rather than git, so an uncommitted
+    # edit anywhere under app/ invalidates `COPY app ./app` and every layer
+    # after it -- including the import check -- while the pip layer stays cached
+    # on requirements.txt. Current source, no stale layers, still fast.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Local-only tag. Deliberately not ghcr.io/... and deliberately not
+    # `unwatcharr:latest` either -- that is the tag docs/INSTALL.md section 2
+    # tells users to build into, and quietly overwriting it from here would make
+    # "which build is this?" unanswerable.
+    image: unwatcharr:local
+    # Build it; never look for it in a registry. Without this a plain `up -d`
+    # (no --build) silently reuses whatever unwatcharr:local was built last
+    # time, which is precisely the stale-code trap this file exists to close.
+    # The layer cache still applies, so an unchanged tree rebuilds in ~1s.
+    pull_policy: build
+    container_name: unwatcharr-dev
+    ports:
+      # 8578 on the host, 8577 inside. The container port does not move because
+      # PORT below, EXPOSE and the HEALTHCHECK are all pinned to 8577; only the
+      # host side changes, so this can run beside a production container that
+      # already holds 8577. Override with e.g. DEV_PORT=9000 in the environment.
+      - "${DEV_PORT:-8578}:8577"
+    volumes:
+      # A named volume, NOT ./config -- the repo's ./config holds a real
+      # database from bare-metal runs and a throwaway test container has no
+      # business writing to it. It also sidesteps Docker Desktop's bind-mount
+      # ownership translation on Windows/macOS, where the entrypoint's chown
+      # does not stick and the app then cannot create its database.
+      # `down -v` wipes it, which is how you get a clean first-boot run.
+      #
+      # To exercise the real bind-mount + PUID/PGID path that production uses,
+      # swap this for a host path on a Linux host: `- ./config-dev:/config`.
+      - config:/config
+    environment:
+      TZ: ${TZ:-America/New_York}
+      # On a named volume the entrypoint's chown always succeeds, so these can
+      # be anything; 1000:1000 is the account the image already creates.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      # Pinned to the container side of the mapping above, same as production.
+      PORT: "8577"
+      # Louder than production on purpose -- this container exists to be read.
+      # `debug` also turns uvicorn's access log on (see app/__main__.py).
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      # Same first-boot-only pre-seeds as production, unset by default: run the
+      # setup wizard, or point PLEX_URL at a mock running on the host with
+      # http://host.docker.internal:32400 (tests/e2e/mock_plex.py 32400).
+      PLEX_URL: ${PLEX_URL:-}
+      PLEX_TOKEN: ${PLEX_TOKEN:-}
+    # No restart policy on purpose: a dev container that dies should stay dead
+    # so the failure is sitting in `logs`, not restarted behind your back.
+    restart: "no"
+
+volumes:
+  config:
