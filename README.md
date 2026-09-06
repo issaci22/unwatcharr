@@ -35,7 +35,7 @@ grey checkmark forever. Plex removed plugin support in 2018, so Unwatcharr canno
 run *inside* Plex. It is a sidecar container that speaks to the Plex HTTP API
 from outside, on port `8577`.
 
-<img width="1905" height="958" alt="Screenshot 2026-09-05 235529" src="https://github.com/user-attachments/assets/b569257d-2ad0-4907-99e7-280664881b35" />
+<img width="1904" height="958" alt="Screenshot 2026-09-06 000408" src="https://github.com/user-attachments/assets/ef6f8999-0d39-42c8-a274-843b639f7f2f" />
 
 ---
 
