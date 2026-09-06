@@ -1,7 +1,7 @@
 # Build the image and publish it to GitHub Container Registry.
 #
 #   push to main   -> ghcr.io/<owner>/unwatcharr:latest (+ :main, :sha-<short>)
-#   push tag v2.1.0 -> :2.1.0, :2.1, :2, :latest
+#   push tag v1.1.0 -> :1.1.0, :1.1, :1, :latest
 #
 # No secrets to configure: GITHUB_TOKEN is minted per run and only needs
 # `packages: write`. The first successful run creates the package as *private* --

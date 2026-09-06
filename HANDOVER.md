@@ -3,11 +3,11 @@
 MACHINE-READABLE BUILD STATE. Overwritten after every substantial component.
 
 ```yaml
-project: Unwatcharr 2.1
+project: Unwatcharr 1.1
 workspace: D:\Documents\Claude Projects\Unwatcharr
 reference_readonly: D:\Documents\Claude Projects\Plex-Unwatcher
 plan: C:\Users\IssacPC\.claude\plans\use-the-claude-md-file-wiggly-quiche.md
-version: 2.1.0
+version: 1.1.0
 updated: 2026-08-30 (v1 IMPORT FEATURE REMOVED ENTIRELY -- see `v1_removal`
          below; 123/123 unit, 50/50 e2e green after the removal;
          DESIGN COMPLETE 10/10; repo initialised, GHCR pipeline live, compose
@@ -140,7 +140,7 @@ remain.
 ## Files on disk
 
 ```
-app/__init__.py          2.1.0
+app/__init__.py          1.1.0
 app/config.py            env-only; CONFIG_DIR, PORT 8577, TZ, PLEX_URL/PLEX_TOKEN, V1_DB_PATH
 app/timeutil.py          resolve/local_tz/now/to_local/format_ts/iso/format_duration/relative
 app/logging_conf.py      ring buffer 2000, RedactingFormatter, register_secret, file log

@@ -255,7 +255,7 @@ The one dashboard payload. Poll this.
 
 ```json
 {
-  "app": {"name": "Unwatcharr", "version": "2.1.0",
+  "app": {"name": "Unwatcharr", "version": "1.1.0",
           "schema_version": 1, "timezone": "America/New_York"},
   "setup_complete": true,
   "safe_mode": true,
